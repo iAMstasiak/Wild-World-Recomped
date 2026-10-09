@@ -1,0 +1,8 @@
+# ROM, saves and BIOS/firmware dumps never go in git
+*.nds
+*.sav
+bios/
+# everything derived from the ROM, and build output
+generated/
+build*/
+.venv/

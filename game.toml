@@ -1,0 +1,17 @@
+[game]
+name = "Animal Crossing: Wild World"
+id = "ADME"
+region = "USA"
+revision = 1
+rom = "acww.nds"
+rom_size = 0x02000000
+sha1 = "77fde3e30e1e6068395d1f96ea63be569b61c351"
+
+[display]
+# Native layout for now; split windows for the Thor and widescreen come later.
+screen_layout = "stacked"
+
+[cartridge]
+# melonDS ROMList entry ADME: SaveMemType 5 (256 KiB flash).
+save_type = "flash"
+save_size = 262144
