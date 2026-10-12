@@ -3,9 +3,11 @@
 
   --rtc-offset-days N    start the --rtc-host clock N whole days ahead
   --rtc-offset-hours N   ... and N hours ahead (both add up)
+  NDS_WATCH=lo-hi        record guest writes to one address range in the
+                         debug port's `watch` ring (see tools/watch.py)
 
-These let day- and time-driven game logic (shop upgrades, opening hours,
-events) be tested without changing the Windows clock.
+The clock offsets let day- and time-driven game logic (shop upgrades,
+opening hours, events) be tested without changing the Windows clock.
 
 Safe to run again: edits that are already there are skipped. Rebuild the
 runner afterwards: cmake --build C:\\acww\\ndsrecomp\\runner\\build-acww
@@ -72,6 +74,33 @@ EDITS = [
      "[--rtc-offset-days N] \"",
      "[--rtc-offset-days N] [--rtc-offset-hours N] \"",
      "[--rtc-offset-hours N]"),
+    # NDS_WATCH: a user-chosen watch range (writes only) for finding code
+    ("runner/src/bus.cpp",
+     "bool watch_addr(uint32_t addr, uint32_t width) {\n",
+     "// acwwrecomp: NDS_WATCH=lo-hi (e.g. 0x021FCFA8-0x021FCFAC) replaces the\n"
+     "// built-in watch ranges with one range; only writes are recorded.\n"
+     "struct UserWatch {\n"
+     "    uint32_t lo = 0, hi = 0;\n"
+     "    UserWatch() {\n"
+     "        if (const char* s = std::getenv(\"NDS_WATCH\")) {\n"
+     "            char* end = nullptr;\n"
+     "            lo = static_cast<uint32_t>(std::strtoul(s, &end, 0));\n"
+     "            if (end && *end == '-')\n"
+     "                hi = static_cast<uint32_t>(std::strtoul(end + 1, nullptr, 0));\n"
+     "        }\n"
+     "    }\n"
+     "};\n"
+     "const UserWatch g_user_watch;\n"
+     "\n"
+     "bool watch_addr(uint32_t addr, uint32_t width) {\n"
+     "    if (g_user_watch.hi > g_user_watch.lo)\n"
+     "        return watch_range(addr, width, g_user_watch.lo, g_user_watch.hi);\n",
+     "const UserWatch g_user_watch;"),
+    ("runner/src/bus.cpp",
+     "    if (!watch_addr(addr, width)) return;\n",
+     "    if (!watch_addr(addr, width)) return;\n"
+     "    if (g_user_watch.hi > g_user_watch.lo && !write) return;   // acwwrecomp\n",
+     "g_user_watch.hi > g_user_watch.lo && !write"),
 ]
 
 
