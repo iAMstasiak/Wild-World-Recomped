@@ -1,0 +1,15 @@
+# Nookington's without a visitor, as in the Wii U Virtual Console release.
+#
+# 0x020AE888 decides what the shop becomes next. At Nookway (stage 2) it
+# also asks whether a player from another town has shopped (flag 7 of the
+# word at save offset 0x15FD8) and keeps the shop at Nookway if not.
+# Skipping that one branch drops the rule; 240,000 Bells spent is enough.
+
+[mod]
+name = "Nookington's without a visitor"
+enabled = true
+
+[[patch]]
+addr = 0x020AE8B2
+original = "03 d0"   # beq 0x020AE8BC: no visitor, stay at Nookway
+patched = "c0 46"    # nop (mov r8, r8)

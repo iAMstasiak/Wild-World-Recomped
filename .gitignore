@@ -6,3 +6,4 @@ bios/
 generated/
 build*/
 .venv/
+__pycache__/
