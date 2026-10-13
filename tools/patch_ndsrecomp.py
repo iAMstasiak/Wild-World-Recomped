@@ -5,6 +5,9 @@
   --rtc-offset-hours N   ... and N hours ahead (both add up)
   NDS_WATCH=lo-hi        record guest writes to one address range in the
                          debug port's `watch` ring (see tools/watch.py)
+  HD at native width     --internal-resolution also works without the
+                         runner's widescreen mode (needs --screen-layout
+                         separate for now)
 
 The clock offsets let day- and time-driven game logic (shop upgrades,
 opening hours, events) be tested without changing the Windows clock.
@@ -101,6 +104,26 @@ EDITS = [
      "    if (!watch_addr(addr, width)) return;\n"
      "    if (g_user_watch.hi > g_user_watch.lo && !write) return;   // acwwrecomp\n",
      "g_user_watch.hi > g_user_watch.lo && !write"),
+    # HD at the native width: the runner only built the HD surfaces in its
+    # widescreen mode, so --internal-resolution showed nothing extra at 256.
+    ("runner/src/frontend.cpp",
+     "        if ((options.adaptive_screens & NDS_ADAPTIVE_TOP) &&\n"
+     "            !nds_gpu2d_direct_present_frame_active())\n",
+     "        if (((options.adaptive_screens & NDS_ADAPTIVE_TOP) ||\n"
+     "             (options.internal_resolution > 1 && presentation.gl_top)) &&   // acwwrecomp: HD\n"
+     "            !nds_gpu2d_direct_present_frame_active())\n",
+     "(options.internal_resolution > 1 && presentation.gl_top)) &&   // acwwrecomp: HD"),
+    ("runner/src/gpu2d.cpp",
+     "    if (output_width <= 256) {\n",
+     "    // acwwrecomp: at the native width the HD presenter still needs this\n"
+     "    // compositor's surfaces, so only skip it when HD is off.\n"
+     "    if (output_width < 256 || (output_width == 256 && !g_hd_emit_enabled)) {\n",
+     "(output_width == 256 && !g_hd_emit_enabled)"),
+    ("runner/src/gpu2d.cpp",
+     "            if (wide_width > 256u &&\n",
+     "            if ((wide_width > 256u ||\n"
+     "                 (wide_width == 256u && g_hd_emit_enabled)) &&   // acwwrecomp: HD\n",
+     "(wide_width == 256u && g_hd_emit_enabled)) &&   // acwwrecomp: HD"),
 ]
 
 
