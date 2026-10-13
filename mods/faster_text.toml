@@ -1,0 +1,53 @@
+# Faster dialogue text.
+#
+# The text system ticks 20 times a second and shows a small burst of letters
+# on each tick: normally 1, then 2, alternating (0x0206AEF8, 0x0206AEFC), or
+# 3 in the game's own fast mode (0x0206AF02), which also skips the pauses
+# after punctuation. When the reader's mode (+0x34) is 1 the game shows a
+# whole box at once; forcing that branch (0x0206AE7C) gives instant text.
+# Pick one with:  py -3.12 tools\mods.py set faster_text <option>
+
+[mod]
+name = "Faster text"
+enabled = true
+setting = "faster"   # normal, fast (about 2x), faster (about 4x) or instant
+
+[[option]]
+name = "normal"
+
+[[option]]
+name = "fast"
+[[option.patch]]
+addr = 0x0206AEF8
+original = "01 24"   # movs r4, #1
+patched = "03 24"    # movs r4, #3
+[[option.patch]]
+addr = 0x0206AEFC
+original = "02 24"   # movs r4, #2
+patched = "03 24"
+[[option.patch]]
+addr = 0x0206AF02
+original = "03 24"   # movs r4, #3 (the game's own fast mode)
+patched = "06 24"
+
+[[option]]
+name = "faster"
+[[option.patch]]
+addr = 0x0206AEF8
+original = "01 24"
+patched = "06 24"    # movs r4, #6
+[[option.patch]]
+addr = 0x0206AEFC
+original = "02 24"
+patched = "06 24"
+[[option.patch]]
+addr = 0x0206AF02
+original = "03 24"
+patched = "0c 24"    # movs r4, #12
+
+[[option]]
+name = "instant"
+[[option.patch]]
+addr = 0x0206AE7C
+original = "05 d0"   # beq: whole box only in the game's instant mode
+patched = "05 e0"    # b: always the whole box
