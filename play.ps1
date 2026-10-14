@@ -1,4 +1,4 @@
-param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth)
+param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth, [switch]$Fps)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
 # Back up the save before every launch and keep the newest 30.
@@ -32,6 +32,8 @@ if ($HD) {
     if ($NoSmooth) { $env:ACWW_SMOOTH_2D = "off" } else { $env:ACWW_SMOOTH_2D = "xbr" }
     "HD: 3D at ${Res}x, texture smoothing ${TexUp}x, 2D smoothing $($env:ACWW_SMOOTH_2D) (G switches), governor held at step 1"
 } else { Remove-Item Env:ACWW_SMOOTH_2D -ErrorAction SilentlyContinue }
+# -Fps shows the frame rate and governor step after the name in the title bar.
+if ($Fps) { $env:ACWW_SHOW_FPS = "1" } else { Remove-Item Env:ACWW_SHOW_FPS -ErrorAction SilentlyContinue }
 # -Watch lo-hi records writes to that range for tools\watch.py.
 if ($Watch) { $env:NDS_WATCH = $Watch; "watching writes to $Watch" }
 else { Remove-Item Env:NDS_WATCH -ErrorAction SilentlyContinue }
