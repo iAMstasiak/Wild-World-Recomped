@@ -1,4 +1,4 @@
-param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2)
+param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
 # Back up the save before every launch and keep the newest 30.
@@ -23,13 +23,15 @@ if ($Days -ne 0 -or $Hours -ne 0) {
 # -Tier3 runs everything in the interpreter (slow, but exact addresses for -Watch).
 if ($Tier3) { $extra += "--force-tier3"; "interpreter only: expect the game to run slowly" }
 # -HD draws the 3D at -Res times (2-4, default 3) with textures smoothed
-# -TexUp times (1 = off, 2 or 4; default 2). Needs tools\patch_hd.py.
-# The governor is held at step 1 so it never takes step 2, which would
-# switch HD off.
+# -TexUp times (1 = off, 2 or 4; default 2), and smooths the 2D with sharp
+# xBR unless -NoSmooth (G switches it while playing). Needs tools\patch_hd.py
+# and tools\patch_smooth2d.py. The governor is held at step 1 so it never
+# takes step 2, which would switch HD off.
 if ($HD) {
     $extra += "--internal-resolution", "$Res", "--texture-upscale", "$TexUp", "--performance-governor", "stage1"
-    "HD: 3D at ${Res}x, texture smoothing ${TexUp}x, governor held at step 1"
-}
+    if ($NoSmooth) { $env:ACWW_SMOOTH_2D = "off" } else { $env:ACWW_SMOOTH_2D = "xbr" }
+    "HD: 3D at ${Res}x, texture smoothing ${TexUp}x, 2D smoothing $($env:ACWW_SMOOTH_2D) (G switches), governor held at step 1"
+} else { Remove-Item Env:ACWW_SMOOTH_2D -ErrorAction SilentlyContinue }
 # -Watch lo-hi records writes to that range for tools\watch.py.
 if ($Watch) { $env:NDS_WATCH = $Watch; "watching writes to $Watch" }
 else { Remove-Item Env:NDS_WATCH -ErrorAction SilentlyContinue }
