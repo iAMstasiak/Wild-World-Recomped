@@ -1,4 +1,4 @@
-param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth, [switch]$Fps, [switch]$NoDiscord)
+param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth, [switch]$Fps, [switch]$NoDiscord, [switch]$NoHDText)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
 # Back up the save before every launch and keep the newest 30.
@@ -27,15 +27,20 @@ if ($Days -ne 0 -or $Hours -ne 0) {
 # -Tier3 runs everything in the interpreter (slow, but exact addresses for -Watch).
 if ($Tier3) { $extra += "--force-tier3"; "interpreter only: expect the game to run slowly" }
 # -HD draws the 3D at -Res times (2-4, default 3) with textures smoothed
-# -TexUp times (1 = off, 2 or 4; default 2), and smooths the 2D with sharp
-# xBR unless -NoSmooth (G switches it while playing). Needs tools\patch_hd.py
-# and tools\patch_smooth2d.py. The governor is held at step 1 so it never
-# takes step 2, which would switch HD off.
+# -TexUp times (1 = off, 2 or 4; default 2), smooths the 2D with sharp xBR
+# unless -NoSmooth (G switches it) and redraws the letters in HD unless
+# -NoHDText (T switches it). Needs tools\patch_hd.py, patch_smooth2d.py and
+# patch_hdtext.py. The governor is held at step 1 so it never takes step 2,
+# which would switch HD off.
 if ($HD) {
     $extra += "--internal-resolution", "$Res", "--texture-upscale", "$TexUp", "--performance-governor", "stage1"
     if ($NoSmooth) { $env:ACWW_SMOOTH_2D = "off" } else { $env:ACWW_SMOOTH_2D = "xbr" }
-    "HD: 3D at ${Res}x, texture smoothing ${TexUp}x, 2D smoothing $($env:ACWW_SMOOTH_2D) (G switches), governor held at step 1"
-} else { Remove-Item Env:ACWW_SMOOTH_2D -ErrorAction SilentlyContinue }
+    if ($NoHDText) { $env:ACWW_HD_TEXT = "off" } else { $env:ACWW_HD_TEXT = "on" }
+    "HD: 3D at ${Res}x, texture smoothing ${TexUp}x, 2D smoothing $($env:ACWW_SMOOTH_2D) (G), HD letters $($env:ACWW_HD_TEXT) (T), governor held at step 1"
+} else {
+    Remove-Item Env:ACWW_SMOOTH_2D -ErrorAction SilentlyContinue
+    Remove-Item Env:ACWW_HD_TEXT -ErrorAction SilentlyContinue
+}
 # -Fps shows the frame rate and governor step after the name in the title bar.
 if ($Fps) { $env:ACWW_SHOW_FPS = "1" } else { Remove-Item Env:ACWW_SHOW_FPS -ErrorAction SilentlyContinue }
 # -Watch lo-hi records writes to that range for tools\watch.py.
