@@ -1,4 +1,4 @@
-param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth, [switch]$Fps)
+param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$HD, [int]$Res = 3, [int]$TexUp = 2, [switch]$NoSmooth, [switch]$Fps, [switch]$NoDiscord)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
 # Back up the save before every launch and keep the newest 30.
@@ -13,6 +13,10 @@ if (-not $Coverage) { $Coverage = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss") 
 # Apply the enabled mods in mods\ as soon as the game is up (tools\mods.py).
 if (-not $NoMods) {
     Start-Process -FilePath py -ArgumentList "-3.12", "tools\mods.py", "apply" -NoNewWindow -WorkingDirectory $PSScriptRoot
+}
+# Discord presence (tools\presence.py) runs alongside the game unless -NoDiscord.
+if (-not $NoDiscord) {
+    Start-Process -FilePath py -ArgumentList "-3.12", "tools\presence.py" -NoNewWindow -WorkingDirectory $PSScriptRoot
 }
 # -Days N / -Hours N start the game's clock ahead of the PC clock (for testing).
 $extra = @()
