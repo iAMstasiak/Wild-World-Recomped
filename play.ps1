@@ -1,39 +1,16 @@
 param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$Fps, [switch]$NoDiscord)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
-# Your choices live in settings.toml: graphics and screen layout are read by
-# the runner itself, mods by tools\mods.py, and backups and Discord here.
-# The switches on this script are for development.
-$settings = if (Test-Path settings.toml) { Get-Content settings.toml -Raw } else { "" }
-function Setting([string]$Name, [string]$Default) {
-    if ($settings -match "(?m)^\s*$Name\s*=\s*([^#\r\n]+)") { return $Matches[1].Trim().Trim('"') }
-    return $Default
-}
+# Your choices live in settings.toml. The runner reads all of it itself: it
+# backs up the save, applies the mods and shows Discord presence, so no
+# Python runs alongside the game. The switches here are for development.
 # Switches an older play.ps1 may have left in this window would win over
 # settings.toml, so clear them.
 Remove-Item Env:ACWW_SMOOTH_2D, Env:ACWW_HD_TEXT, Env:ACWW_SHOW_FPS -ErrorAction SilentlyContinue
-# Back up the save before every launch and keep the newest few.
-if ((Setting "backup_on_launch" "true") -eq "true" -and (Test-Path acww.sav)) {
-    $keep = [int](Setting "keep_backups" "30")
-    New-Item -ItemType Directory -Force backups | Out-Null
-    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    Copy-Item acww.sav "backups\acww-$stamp.sav"
-    Get-ChildItem backups\acww-*.sav | Sort-Object Name -Descending | Select-Object -Skip $keep | Remove-Item
-    "save backed up to backups\acww-$stamp.sav"
-}
 if (-not $Coverage) { $Coverage = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss") }
-# Apply the mods chosen in settings.toml as soon as the game is up (tools\mods.py).
-if (-not $NoMods) {
-    Start-Process -FilePath py -ArgumentList "-3.12", "tools\mods.py", "apply" -NoNewWindow -WorkingDirectory $PSScriptRoot
-}
-# Discord presence (tools\presence.py) runs alongside the game unless it is
-# off in settings.toml or -NoDiscord is given.
-if (-not $NoDiscord -and (Setting "presence" "true") -eq "true") {
-    $presence = @("-3.12", "tools\presence.py")
-    if ((Setting "show_names" "true") -ne "true") { $presence += "--hide-names" }
-    if ((Setting "show_bells" "true") -ne "true") { $presence += "--hide-bells" }
-    Start-Process -FilePath py -ArgumentList $presence -NoNewWindow -WorkingDirectory $PSScriptRoot
-}
+# -NoMods and -NoDiscord leave those out for this run only.
+if ($NoMods) { $env:ACWW_NO_MODS = "1" } else { Remove-Item Env:ACWW_NO_MODS -ErrorAction SilentlyContinue }
+if ($NoDiscord) { $env:ACWW_NO_DISCORD = "1" } else { Remove-Item Env:ACWW_NO_DISCORD -ErrorAction SilentlyContinue }
 # -Days N / -Hours N start the game's clock ahead of the PC clock (for testing).
 $extra = @()
 if ($Days -ne 0 -or $Hours -ne 0) {
