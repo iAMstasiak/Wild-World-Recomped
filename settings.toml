@@ -1,0 +1,27 @@
+# Wild World Recomped settings: your own choices, read when the game starts.
+# The launcher will look after this file; until then, edit it by hand.
+
+[graphics]
+resolution = 3            # 1 = the DS's own, 2 to 4 = sharper 3D (3 recommended)
+texture_smoothing = 2     # 1 = off, 2 or 4
+smoothing_2d = "xbr"      # "xbr" = sharp smoothing on menus and text, "off" = original pixels (G switches it)
+hd_letters = true         # redraw the game's letters smoothly (T switches it)
+show_fps = false          # frame rate in the title bar
+
+[display]
+screen_layout = "stacked" # "stacked" = one window, "separate" = a window per screen
+fullscreen = "off"        # "off", "borderless" or "exclusive"
+
+[mods]
+# Each mod in mods\ by its file name: "on", "off", or one of its options.
+faster_text = "fast"      # "normal", "fast" (about 2x), "faster" (about 4x) or "instant"
+nookingtons = "on"        # Nookington's without needing a visitor
+
+[saves]
+backup_on_launch = true   # copy acww.sav into backups\ before every launch
+keep_backups = 30
+
+[discord]
+presence = true           # show what you're doing on your Discord profile
+show_names = true         # "player of town"
+show_bells = true

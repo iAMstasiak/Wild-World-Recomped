@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Make a "Wild World Recomped" shortcut that starts the game in HD.
+"""Make a "Wild World Recomped" shortcut that starts the game.
 
   py -3.12 tools\\shortcut.py                 desktop shortcut
   py -3.12 tools\\shortcut.py --start-menu    ... and one in the Start menu
 
 The shortcut's icon is the game's own DS menu icon, read from your ROM and
 saved in %LOCALAPPDATA%\\Wild World Recomped, outside the project folder, so
-none of Nintendo's art ends up in git. The shortcut runs play.ps1 -HD (change
-that with --play-args) with its console window minimised.
+none of Nintendo's art ends up in git. The shortcut runs play.ps1 (add switches
+with --play-args) with its console window minimised.
 """
 
 from __future__ import annotations
@@ -137,8 +137,8 @@ def main() -> int:
     parser.add_argument("--rom", type=Path, default=ROOT / "acww.nds")
     parser.add_argument("--start-menu", action="store_true",
                         help="also add the shortcut to the Start menu")
-    parser.add_argument("--play-args", default="-HD",
-                        help="what to pass to play.ps1 (default: -HD)")
+    parser.add_argument("--play-args", default="",
+                        help="what to pass to play.ps1 (default: none)")
     args = parser.parse_args()
 
     base = Path(os.environ.get("LOCALAPPDATA", ROOT / "generated"))

@@ -4,16 +4,21 @@
 A mod file has a [mod] table (name, enabled, and `setting` when it has
 options), [[patch]] entries that always apply, and optionally [[option]]
 tables, each with a name and its own [[option.patch]] entries; `setting`
-picks one. A patch has addr, original and patched bytes and is only written
-when the live bytes still match `original` (or another option's bytes it
-replaces), so a wrong ROM or a clashing mod is reported, not written over.
-Writes go through the runner's debug port and its normal bus path, which
-drops the recompiled copy of the patched code.
+picks one. The [mods] section of settings.toml holds the player's choice
+for each mod by its file name ("on", "off" or an option) and wins over the
+mod file's own enabled and setting, which are only its defaults.
+
+A patch has addr, original and patched bytes and is only written when the
+live bytes still match `original` (or another option's bytes it replaces),
+so a wrong ROM or a clashing mod is reported, not written over. Writes go
+through the runner's debug port and its normal bus path, which drops the
+recompiled copy of the patched code.
 
   list                 show the mods, their settings and options
   apply                apply every enabled mod (play.ps1 runs this at launch)
-  set MOD VALUE        pick an option, or on / off; applied at once if the
-                       game is running (MOD = file name without .toml)
+  set MOD VALUE        pick an option, or on / off, in settings.toml; applied
+                       at once if the game is running (MOD = file name
+                       without .toml)
   status               show what is live in the running game
   revert               put the original bytes back everywhere
 """
@@ -29,6 +34,16 @@ from pathlib import Path
 from memscan import Runner
 
 MODS_DIR = Path("mods")
+SETTINGS = Path("settings.toml")
+
+
+def load_choices() -> dict[str, str]:
+    """The player's choices: the [mods] section of settings.toml."""
+    if not SETTINGS.is_file():
+        return {}
+    with SETTINGS.open("rb") as handle:
+        choices = tomllib.load(handle).get("mods", {})
+    return {str(k): str(v) for k, v in choices.items()}
 
 
 def read_patches(entries: list[dict], where: str) -> list[dict]:
@@ -42,6 +57,7 @@ def read_patches(entries: list[dict], where: str) -> list[dict]:
 
 def load_mods() -> list[dict]:
     mods = []
+    choices = load_choices()
     for path in sorted(MODS_DIR.glob("*.toml")):
         with path.open("rb") as handle:
             data = tomllib.load(handle)
@@ -54,6 +70,14 @@ def load_mods() -> list[dict]:
             raise SystemExit(f"{path.name}: setting {setting!r} is not one of "
                              f"{', '.join(options)}")
         enabled = bool(info.get("enabled", False))
+        choice = choices.get(path.stem)
+        if choice in ("on", "off"):
+            enabled = choice == "on"
+        elif choice is not None and choice in options:
+            enabled, setting = True, choice
+        elif choice is not None:
+            raise SystemExit(f"settings.toml: mods.{path.stem} = {choice!r} is not one of "
+                             f"{', '.join(['on', 'off'] + list(options))}")
         active = (base + options.get(setting, [])) if enabled else []
         known = base + [p for patches in options.values() for p in patches]
         mods.append({"file": path.name, "id": path.stem, "path": path,
@@ -150,23 +174,30 @@ def cmd_revert(runner: Runner, mods: list[dict]) -> None:
         print(f"  {mod['name']}: reverted")
 
 
+def save_choice(mod_id: str, value: str) -> None:
+    """Write mods.MOD = "value" into settings.toml, keeping everything else."""
+    text = SETTINGS.read_text(encoding="utf-8") if SETTINGS.is_file() else ""
+    line = f'{mod_id} = "{value}"'
+    same = re.compile(rf'(?m)^(\s*{re.escape(mod_id)}\s*=\s*)"[^"]*"')
+    section = re.compile(r"(?m)^\[mods\][ \t]*$")
+    if same.search(text):
+        text = same.sub(lambda m: f'{m.group(1)}"{value}"', text, count=1)
+    elif section.search(text):
+        text = section.sub(lambda m: f"[mods]\n{line}", text, count=1)
+    else:
+        text = text.rstrip("\n") + ("\n\n" if text else "") + f"[mods]\n{line}\n"
+    SETTINGS.write_text(text, encoding="utf-8")
+
+
 def cmd_set(mods: list[dict], which: str, value: str, port: int) -> None:
     mod = next((m for m in mods if which in (m["id"], m["name"])), None)
     if mod is None:
         raise SystemExit(f"no mod called {which!r}: try one of {', '.join(m['id'] for m in mods)}")
-    text = mod["path"].read_text(encoding="utf-8")
-    if value in ("on", "off"):
-        text, n = re.subn(r"(?m)^(\s*enabled\s*=\s*)(true|false)",
-                          rf"\g<1>{'true' if value == 'on' else 'false'}", text, count=1)
-    elif value in mod["options"]:
-        text, n = re.subn(r'(?m)^(\s*setting\s*=\s*)"[^"]*"', rf'\g<1>"{value}"', text, count=1)
-    else:
+    if value not in ("on", "off") and value not in mod["options"]:
         choices = ", ".join(list(mod["options"]) + ["on", "off"])
         raise SystemExit(f"{mod['id']}: {value!r} is not one of {choices}")
-    if not n:
-        raise SystemExit(f"{mod['file']}: couldn't find the line to change")
-    mod["path"].write_text(text, encoding="utf-8")
-    print(f"{mod['id']}: set to {value}")
+    save_choice(mod["id"], value)
+    print(f"{mod['id']}: set to {value} (in settings.toml)")
     try:
         runner = connect(port, timeout=1)
     except SystemExit:
