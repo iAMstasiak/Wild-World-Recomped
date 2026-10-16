@@ -29,7 +29,9 @@ get_filename_component(ACWW_DLL_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
 set(SNESRECOMP_SDL_BACKEND "SDL3")
 find_package(SDL3 CONFIG REQUIRED)
 
-add_executable(WildWorldRecomped main.cpp)
+# WIN32: a windowed program, so no console window opens beside it. The game's
+# own output goes to generated\logs\last-run.log (main.cpp).
+add_executable(WildWorldRecomped WIN32 main.cpp)
 target_link_libraries(WildWorldRecomped PRIVATE SDL3::SDL3 opengl32)
 target_compile_definitions(WildWorldRecomped PRIVATE
     ACWW_ROOT="${ACWW_ROOT}"

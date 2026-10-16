@@ -2,12 +2,12 @@
 //
 // Opens recomp-ui's launcher window with its Nintendo DS profile. Its
 // Settings page and Mods page read and write settings.toml, and Play starts
-// the game the same way play.ps1 does, in this console window. With "Skip
-// launcher on boot" ticked it goes straight to the game; run it with
-// --launcher to get the window back.
+// the game the same way play.ps1 does. It is a windowed program with no
+// console: what the game prints goes to generated\logs\last-run.log. With
+// "Skip launcher on boot" ticked it goes straight to the game; hold Shift
+// while it starts (or run it with --launcher) to get the window back.
 
 #include <algorithm>
-#include <cerrno>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -17,12 +17,15 @@
 #include <string>
 #include <vector>
 
-#include <process.h>
-
 #include "game_options.h"
 #include "launcher_profile.h"
 #include "recomp_launcher.h"
+#include "rom_art.h"
 #include "settings_file.h"
+
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 
 namespace {
 
@@ -33,6 +36,8 @@ const char* const kResolutionLabels[] = {"Native (256x192)", "2x (512x384)",
                                          "3x (768x576)", "4x (1024x768)"};
 const int kResolutionValues[] = {1, 2, 3, 4};
 const char* const kFullscreen[] = {"off", "borderless", "exclusive"};
+const char* const kLayoutLabels[] = {"Stacked (one window)", "Separate windows"};
+const char* const kLayouts[] = {"stacked", "separate"};
 
 const char* const kCredits =
     "Wild World Recomped\n"
@@ -47,8 +52,13 @@ const char* const kCredits =
     "Animal Crossing is a trademark of Nintendo. This project is not affiliated "
     "with or endorsed by Nintendo.";
 
-// _spawnv joins the arguments with spaces as they are, so any with a space
-// in them (a ROM in "OneDrive\Documents\...") need quotes.
+// There's no console to print to, so problems go in a message box.
+void tell(const std::string& message) {
+    MessageBoxA(nullptr, message.c_str(), "Wild World Recomped", MB_OK | MB_ICONWARNING);
+}
+
+// The game's command line is one string, so arguments with a space in them
+// (a ROM in "OneDrive\Documents\...") need quotes.
 std::string quoted(const std::string& arg) {
     if (!arg.empty() && arg.find_first_of(" \t\"") == std::string::npos) return arg;
     std::string out = "\"";
@@ -69,24 +79,52 @@ int start_game(const std::string& rom) {
         "--save-path", "acww.sav", "--firmware-state-path", "bios\\firmware-state.bin",
         "--diagnostics-dir", "generated\\diagnostics",
         "--coverage-manifest", std::string("generated\\coverage\\") + stamp + ".json"};
-    std::vector<std::string> quoted_args;
-    for (const std::string& arg : args) quoted_args.push_back(quoted(arg));
-    std::vector<const char*> argv;
-    for (const std::string& arg : quoted_args) argv.push_back(arg.c_str());
-    argv.push_back(nullptr);
+    std::string command;
+    for (const std::string& arg : args) command += (command.empty() ? "" : " ") + quoted(arg);
+
     // The runner needs MSYS2's DLLs (SDL3, the C++ runtime). play.ps1 puts
     // them on PATH; a shortcut doesn't, so do the same here.
     std::string dlls = ACWW_DLL_DIR;
     std::replace(dlls.begin(), dlls.end(), '/', '\\');
     const char* path = std::getenv("PATH");
-    _putenv(("PATH=" + dlls + ";" + (path ? path : "")).c_str());
-    std::fflush(stdout);
-    std::fflush(stderr);
-    const intptr_t code = _spawnv(_P_WAIT, ACWW_RUNNER, argv.data());
-    if (code == -1) {
-        std::fprintf(stderr, "[launcher] could not start %s: %s\n", ACWW_RUNNER,
-                     std::strerror(errno));
+    SetEnvironmentVariableA("PATH", (dlls + ";" + (path ? path : "")).c_str());
+
+    // What the game prints goes to the log instead of a console window.
+    std::error_code ec;
+    std::filesystem::create_directories("generated\\logs", ec);
+    SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
+    HANDLE log_file = CreateFileA("generated\\logs\\last-run.log", GENERIC_WRITE,
+                                  FILE_SHARE_READ, &inherit, CREATE_ALWAYS,
+                                  FILE_ATTRIBUTE_NORMAL, nullptr);
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    if (log_file != INVALID_HANDLE_VALUE) {
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdOutput = log_file;
+        startup.hStdError = log_file;
+    }
+    PROCESS_INFORMATION game{};
+    std::vector<char> line(command.begin(), command.end());
+    line.push_back('\0');
+    const BOOL started = CreateProcessA(ACWW_RUNNER, line.data(), nullptr, nullptr, TRUE,
+                                        CREATE_NO_WINDOW, nullptr, nullptr, &startup, &game);
+    const DWORD why = GetLastError();
+    if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
+    if (!started) {
+        tell("The game couldn't start (Windows error " + std::to_string(why) + "):\n" +
+             ACWW_RUNNER);
         return 1;
+    }
+    WaitForSingleObject(game.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(game.hProcess, &code);
+    CloseHandle(game.hThread);
+    CloseHandle(game.hProcess);
+    if (code != 0) {
+        char hex[16];
+        std::snprintf(hex, sizeof(hex), "0x%08lX", static_cast<unsigned long>(code));
+        tell(std::string("The game stopped with an error (") + hex + "). What it printed is in "
+             "generated\\logs\\last-run.log.");
     }
     return static_cast<int>(code);
 }
@@ -112,10 +150,10 @@ int main(int argc, char** argv) {
     std::error_code ec;
     std::filesystem::current_path(ACWW_ROOT, ec);
     if (ec) {
-        std::fprintf(stderr, "[launcher] can't open %s: %s\n", ACWW_ROOT, ec.message().c_str());
+        tell(std::string("Can't open the game's folder:\n") + ACWW_ROOT);
         return 1;
     }
-    bool force_window = false;
+    bool force_window = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
     for (int i = 1; i < argc; ++i)
         if (std::strcmp(argv[i], "--launcher") == 0) force_window = true;
 
@@ -145,6 +183,8 @@ int main(int argc, char** argv) {
     game.internal_resolution_values = kResolutionValues;
     game.num_internal_resolutions = 4;
     game.internal_resolution_note = "3x is recommended. Lower it if the game stutters.";
+    game.display_layout_labels = kLayoutLabels;
+    game.num_display_layouts = 2;
     game.credits_text = kCredits;
     game.mods = &provider;
 
@@ -156,9 +196,12 @@ int main(int argc, char** argv) {
     settings.internal_resolution = std::clamp(file.get_int("graphics", "resolution", 3), 1, 4);
     const std::string fullscreen = file.get("display", "fullscreen", "off");
     settings.fullscreen = fullscreen == "borderless" ? 1 : fullscreen == "exclusive" ? 2 : 0;
+    settings.display_layout = file.get("display", "screen_layout", "stacked") == "separate";
     settings.skip_launcher = 0;
 
     const std::string last_rom = file.get("launcher", "rom", "acww.nds");
+    const std::string box_art = acww::make_box_art(last_rom);
+    if (!box_art.empty()) game.boxart_path = box_art.c_str();
     char rom[1024] = {0};
     const int result = recomp_launcher_run_window("Wild World Recomped", &settings, &game,
                                                   "assets", last_rom.c_str(), rom, sizeof(rom));
@@ -169,15 +212,15 @@ int main(int argc, char** argv) {
         file.set("graphics", "resolution", std::to_string(settings.internal_resolution));
     file.set("display", "fullscreen",
              acww::SettingsFile::text(kFullscreen[std::clamp(settings.fullscreen, 0, 2)]));
+    file.set("display", "screen_layout",
+             acww::SettingsFile::text(kLayouts[settings.display_layout == 1 ? 1 : 0]));
     file.set("launcher", "skip", acww::SettingsFile::flag(settings.skip_launcher != 0));
     options.store(file);
     const std::string chosen = rom[0] ? rom : last_rom;
     if (result != RECOMP_LAUNCHER_RESULT_QUIT) file.set("launcher", "rom", acww::SettingsFile::text(chosen));
     if (!file.save("settings.toml"))
-        std::fprintf(stderr, "[launcher] could not save settings.toml\n");
+        tell("Your settings couldn't be saved to settings.toml.");
 
     if (result == RECOMP_LAUNCHER_RESULT_QUIT) return 0;
-    if (result == RECOMP_LAUNCHER_RESULT_UNAVAILABLE)
-        std::fprintf(stderr, "[launcher] the launcher window couldn't open; starting the game\n");
-    return start_game(chosen);
+    return start_game(chosen);   // also when the window couldn't open at all
 }
