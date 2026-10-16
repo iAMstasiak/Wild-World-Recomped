@@ -1,5 +1,5 @@
 # Wild World Recomped settings: your own choices, read when the game starts.
-# The launcher will look after this file; until then, edit it by hand.
+# The launcher saves your choices here when it closes; you can also edit it by hand.
 
 [graphics]
 resolution = 3            # 1 = the DS's own, 2 to 4 = sharper 3D (3 recommended)

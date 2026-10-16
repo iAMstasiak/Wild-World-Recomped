@@ -11,3 +11,7 @@ __pycache__/
 launcher/build/
 launcher.ini
 keybinds.ini
+hostprof-*.ndshp
+performance-*.jsonl
+launcher-window.ini
+rom.cfg

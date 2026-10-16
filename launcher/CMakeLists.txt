@@ -36,5 +36,7 @@ if(TARGET SDL3::SDL3-shared)
             $<TARGET_FILE:SDL3::SDL3-shared> $<TARGET_FILE_DIR:WildWorldRecomped>)
 endif()
 
+# The Mods page, where Wild World's own options go (game_options.h).
+set(RECOMP_UI_ENABLE_MODS ON)
 include("${RECOMP_UI_ROOT}/recomp_ui.cmake")
 recomp_target_launcher_ui(WildWorldRecomped CONSOLE nds)
