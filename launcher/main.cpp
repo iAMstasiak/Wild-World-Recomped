@@ -23,7 +23,9 @@
 #include "rom_art.h"
 #include "settings_file.h"
 
+#ifndef NOMINMAX   // MinGW's C++ library already defines it
 #define NOMINMAX
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
@@ -169,6 +171,7 @@ int main(int argc, char** argv) {
     RecompLauncherCGameInfo game;
     std::memset(&game, 0, sizeof(game));
     launcher_profile_apply("nds", &game);   // theme, DS art, the DS's settings
+    game.theme = "acww";                    // Wild World colours (tools\patch_recompui.py)
     game.name = "Wild World Recomped";
     game.region = "USA";
     game.known_sha1_hex = kSha1;
