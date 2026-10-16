@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -73,6 +74,12 @@ int start_game(const std::string& rom) {
     std::vector<const char*> argv;
     for (const std::string& arg : quoted_args) argv.push_back(arg.c_str());
     argv.push_back(nullptr);
+    // The runner needs MSYS2's DLLs (SDL3, the C++ runtime). play.ps1 puts
+    // them on PATH; a shortcut doesn't, so do the same here.
+    std::string dlls = ACWW_DLL_DIR;
+    std::replace(dlls.begin(), dlls.end(), '/', '\\');
+    const char* path = std::getenv("PATH");
+    _putenv(("PATH=" + dlls + ";" + (path ? path : "")).c_str());
     std::fflush(stdout);
     std::fflush(stderr);
     const intptr_t code = _spawnv(_P_WAIT, ACWW_RUNNER, argv.data());
