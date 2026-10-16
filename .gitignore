@@ -7,3 +7,7 @@ generated/
 build*/
 .venv/
 __pycache__/
+
+launcher/build/
+launcher.ini
+keybinds.ini
