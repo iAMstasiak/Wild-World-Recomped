@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Make a "Wild World Recomped" shortcut that starts the game.
+"""Make a "Wild World Recomped" shortcut that opens the launcher.
 
   py -3.12 tools\\shortcut.py                 desktop shortcut
   py -3.12 tools\\shortcut.py --start-menu    ... and one in the Start menu
+  py -3.12 tools\\shortcut.py --play-ps1      start play.ps1 instead (testing)
 
 The shortcut's icon is the game's own DS menu icon, read from your ROM and
 saved in %LOCALAPPDATA%\\Wild World Recomped, outside the project folder, so
-none of Nintendo's art ends up in git. The shortcut runs play.ps1 (add switches
-with --play-args) with its console window minimised.
+none of Nintendo's art ends up in git. The shortcut runs the launcher
+(launcher\\build\\WildWorldRecomped.exe); with --play-ps1 it runs play.ps1
+instead (add switches with --play-args) with its console window minimised.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+LAUNCHER = ROOT / "launcher" / "build" / "WildWorldRecomped.exe"
 SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
@@ -108,21 +111,22 @@ MAKE_SHORTCUT = r"""
 $folder = [Environment]::GetFolderPath($env:ACWW_FOLDER)
 $path = Join-Path $folder 'Wild World Recomped.lnk'
 $link = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
-$link.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$link.Arguments = '-NoProfile -ExecutionPolicy Bypass -File ' + [char]34 + $env:ACWW_PLAY + [char]34 + ' ' + $env:ACWW_PLAY_ARGS
+$link.TargetPath = $env:ACWW_TARGET
+$link.Arguments = $env:ACWW_ARGS
 $link.WorkingDirectory = $env:ACWW_ROOT
 $link.IconLocation = $env:ACWW_ICON + ',0'
-$link.WindowStyle = 7
+$link.WindowStyle = [int]$env:ACWW_STYLE
 $link.Description = 'Wild World Recomped'
 $link.Save()
 Write-Output $path
 """
 
 
-def make_shortcut(folder: str, icon: Path, play_args: str) -> None:
+def make_shortcut(folder: str, icon: Path, target: str, arguments: str,
+                  style: int) -> None:
     env = dict(os.environ, ACWW_FOLDER=folder, ACWW_ICON=str(icon),
-               ACWW_ROOT=str(ROOT), ACWW_PLAY=str(ROOT / "play.ps1"),
-               ACWW_PLAY_ARGS=play_args)
+               ACWW_ROOT=str(ROOT), ACWW_TARGET=target, ACWW_ARGS=arguments,
+               ACWW_STYLE=str(style))
     encoded = base64.b64encode(MAKE_SHORTCUT.encode("utf-16-le")).decode()
     result = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
@@ -137,17 +141,32 @@ def main() -> int:
     parser.add_argument("--rom", type=Path, default=ROOT / "acww.nds")
     parser.add_argument("--start-menu", action="store_true",
                         help="also add the shortcut to the Start menu")
+    parser.add_argument("--play-ps1", action="store_true",
+                        help="start play.ps1 instead of the launcher")
     parser.add_argument("--play-args", default="",
                         help="what to pass to play.ps1 (default: none)")
     args = parser.parse_args()
+
+    if args.play_ps1:
+        target = str(Path(os.environ.get("SystemRoot", r"C:\Windows")) /
+                     "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+        arguments = (f'-NoProfile -ExecutionPolicy Bypass -File "{ROOT / "play.ps1"}" '
+                     f'{args.play_args}').strip()
+        style = 7   # console minimised; the game opens its own window
+    else:
+        if not LAUNCHER.exists():
+            raise SystemExit(f"build the launcher first: {LAUNCHER} isn't there")
+        # Opened normally: Windows would start the launcher's own window
+        # minimised too if the shortcut asked for a minimised console.
+        target, arguments, style = str(LAUNCHER), "", 1
 
     base = Path(os.environ.get("LOCALAPPDATA", ROOT / "generated"))
     icon = base / "Wild World Recomped" / "icon.ico"
     write_ico(icon, read_banner_icon(args.rom))
     print(f"saved the icon: {icon}")
-    make_shortcut("Desktop", icon, args.play_args)
+    make_shortcut("Desktop", icon, target, arguments, style)
     if args.start_menu:
-        make_shortcut("Programs", icon, args.play_args)
+        make_shortcut("Programs", icon, target, arguments, style)
     return 0
 
 
