@@ -283,7 +283,7 @@ void update_hd_readback(FrontendPresentation& presentation, int top_width,
 
 PresentationTicks present_screens(FrontendPresentation& presentation,
 ''',
-     "void update_hd_readback(FrontendPresentation& presentation, int top_width,"),
+     "// acwwrecomp: HD without a GL window."),
     (FRONTEND,
      "    top_pixels = runtime_menu_overlay(\n"
      "        runtime_ui, top_pixels, top_width, kScreenHeight);\n"
