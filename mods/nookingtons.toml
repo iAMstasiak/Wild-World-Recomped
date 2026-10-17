@@ -1,4 +1,4 @@
-# Nookington's without a visitor, as in the Wii U Virtual Console release.
+# Disable the Multiplayer requirement for the Nookingtons Upgrade.
 #
 # 0x020AE888 decides what the shop becomes next. At Nookway (stage 2) it
 # also asks whether a player from another town has shopped (flag 7 of the
@@ -6,7 +6,7 @@
 # Skipping that one branch drops the rule; 240,000 Bells spent is enough.
 
 [mod]
-name = "Nookington's without a visitor"
+name = "Disable Nookington's Upgrade Flag"
 enabled = true
 
 [[patch]]
