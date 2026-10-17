@@ -2,7 +2,19 @@
 //
 // The launcher runs this on first start (and after an update); it does what
 // prepare_acww.py, make_banks.py and the runner build do on the developer's
-// PC, with no Python. So far, two of its steps:
+// PC, with no Python. The launcher runs the whole thing:
+//
+//   WildWorldBuild build --rom acww.nds --seeds DIR --recompiler EXE
+//       --ndsrecomp DIR --recomp-ui DIR --pack DIR --work DIR --out DIR [--jobs N]
+//
+// checks the ROM, recompiles it into C (work\recomp, work\gen), compiles that
+// into the game with the compiler pack (work\runner) and copies the game into
+// --out. Its output for the launcher: "[step] recompile|configure|compile|
+// install", "[progress] N/M what", "[error] message" (on stderr, after any
+// "[log] line" from the log) and "[done] path to the game".
+//
+// Each step can also be run on its own, to check it against the developer's
+// pipeline:
 //
 //   WildWorldBuild unpack --rom acww.nds --out generated\inputs-check
 //       [--compare generated\inputs]
@@ -24,6 +36,11 @@
 //
 // also recompiles every bank into C (and FreeBIOS, given --ndsrecomp), several
 // at once, and with --compare checks the game's C files against an earlier set.
+//
+//   WildWorldBuild compile --ndsrecomp DIR --recomp-ui DIR --pack DIR
+//       --work DIR --out DIR [--jobs N]
+//
+// compiles what recompile left in --work into the game.
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -34,6 +51,7 @@
 #include <thread>
 #include <vector>
 
+#include "build_runner.h"
 #include "files.h"
 #include "nds_rom.h"
 #include "plan.h"
@@ -247,6 +265,101 @@ int recompile(int argc, char** argv) {
     return 0;
 }
 
+// A folder or file from the command line as a full path (CMake would take a
+// relative one as inside its build folder), or empty if it isn't there.
+fs::path full_path(int argc, char** argv, const std::string& name) {
+    const std::string value = arg_value(argc, argv, name);
+    std::error_code ec;
+    return value.empty() ? fs::path() : fs::absolute(fs::u8path(value), ec).lexically_normal();
+}
+
+// The compile options from the command line; false when one is missing.
+bool build_options(int argc, char** argv, wwbuild::BuildOptions* o) {
+    o->work = full_path(argc, argv, "--work");
+    o->ndsrecomp = full_path(argc, argv, "--ndsrecomp");
+    o->recomp_ui = full_path(argc, argv, "--recomp-ui");
+    o->pack = full_path(argc, argv, "--pack");
+    o->out = full_path(argc, argv, "--out");
+    o->rom_sha1 = kRomSha1;
+    o->jobs = std::atoi(arg_value(argc, argv, "--jobs").c_str());
+    return !o->work.empty() && !o->ndsrecomp.empty() && !o->recomp_ui.empty() && !o->pack.empty() &&
+           !o->out.empty();
+}
+
+int compile_game(const wwbuild::BuildOptions& o, std::chrono::steady_clock::time_point started) {
+    std::string error;
+    std::vector<std::string> details;
+    if (!wwbuild::build_runner(o, &error, &details)) {
+        for (const std::string& line : details) std::fprintf(stderr, "[log] %s\n", line.c_str());
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    std::printf("built in %d min %02d s\n[done] %s\n", static_cast<int>(seconds) / 60,
+                static_cast<int>(seconds) % 60,
+                (o.out / (std::string("nds_runner") + wwbuild::kExe)).u8string().c_str());
+    return 0;
+}
+
+int compile(int argc, char** argv) {
+    wwbuild::BuildOptions o;
+    if (!build_options(argc, argv, &o)) {
+        std::fprintf(stderr, "usage: WildWorldBuild compile --ndsrecomp DIR --recomp-ui DIR --pack DIR "
+                             "--work DIR --out DIR [--jobs N]\n");
+        return 2;
+    }
+    return compile_game(o, std::chrono::steady_clock::now());
+}
+
+// About what a build takes: the C, the compiled code and a second copy of
+// the C while a rebuild swaps it in.
+constexpr uintmax_t kSpaceNeeded = 4ull << 30;
+
+int build(int argc, char** argv) {
+    const auto started = std::chrono::steady_clock::now();
+    const std::string rom_path = arg_value(argc, argv, "--rom");
+    const std::string seeds_arg = arg_value(argc, argv, "--seeds");
+    wwbuild::BuildOptions o;
+    wwbuild::RecompileOptions r;
+    r.recompiler = full_path(argc, argv, "--recompiler");
+    if (!build_options(argc, argv, &o) || rom_path.empty() || seeds_arg.empty() || r.recompiler.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild build --rom FILE --seeds DIR --recompiler EXE "
+                             "--ndsrecomp DIR --recomp-ui DIR --pack DIR --work DIR --out DIR [--jobs N]\n");
+        return 2;
+    }
+    r.work = o.work;
+    r.ndsrecomp = o.ndsrecomp;
+    r.jobs = static_cast<int>(std::min(8u, std::max(1u, std::thread::hardware_concurrency())));
+    std::error_code ec;
+    fs::create_directories(o.work, ec);
+    const fs::space_info space = fs::space(o.work, ec);
+    if (!ec && space.available < kSpaceNeeded) {
+        std::fprintf(stderr, "[error] building the game needs about %llu GB free on the drive with %s, "
+                             "and there's %.1f GB\n",
+                     static_cast<unsigned long long>(kSpaceNeeded >> 30), o.work.u8string().c_str(),
+                     static_cast<double>(space.available) / (1 << 30));
+        return 1;
+    }
+
+    std::printf("[step] recompile\n");
+    std::fflush(stdout);
+    wwbuild::Rom rom;
+    if (!load_rom(rom_path, &rom)) return 1;
+    std::string report, error;
+    const std::vector<wwbuild::Bank> banks = wwbuild::plan_banks(rom, fs::u8path(seeds_arg), &report);
+    if (banks.empty()) {
+        std::fprintf(stderr, "[error] no seed files in %s\n", seeds_arg.c_str());
+        return 1;
+    }
+    std::printf("%s\n%zu banks to recompile, %d at a time\n", report.c_str(), banks.size(), r.jobs);
+    std::fflush(stdout);
+    if (!wwbuild::recompile_banks(rom, banks, r, &error)) {
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    return compile_game(o, started);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -254,11 +367,17 @@ int main(int argc, char** argv) {
     if (command == "unpack") return unpack(argc, argv);
     if (command == "plan") return plan(argc, argv);
     if (command == "recompile") return recompile(argc, argv);
+    if (command == "compile") return compile(argc, argv);
+    if (command == "build") return build(argc, argv);
     std::fprintf(stderr,
                  "WildWorldBuild: builds Wild World Recomped from your own ROM.\n"
+                 "  WildWorldBuild build --rom acww.nds --seeds DIR --recompiler EXE --ndsrecomp DIR\n"
+                 "      --recomp-ui DIR --pack DIR --work DIR --out DIR [--jobs N]\n"
                  "  WildWorldBuild unpack --rom acww.nds --out DIR [--compare DIR]\n"
                  "  WildWorldBuild plan --rom acww.nds --seeds DIR --out DIR [--compare DIR]\n"
                  "  WildWorldBuild recompile --rom acww.nds --seeds DIR --recompiler EXE --work DIR\n"
-                 "      [--ndsrecomp DIR] [--jobs N] [--compare DIR]\n");
+                 "      [--ndsrecomp DIR] [--jobs N] [--compare DIR]\n"
+                 "  WildWorldBuild compile --ndsrecomp DIR --recomp-ui DIR --pack DIR --work DIR\n"
+                 "      --out DIR [--jobs N]\n");
     return 2;
 }

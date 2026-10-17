@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -27,6 +28,30 @@ struct RecompileOptions {
     int jobs = 4;
 };
 
+// Moves each file in from over the one with its name in to, leaving the old
+// file (and its date) alone when nothing in it changed, so a second build
+// only compiles what changed. Files only in to are deleted.
+inline void sync_folder(const std::filesystem::path& from, const std::filesystem::path& to) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(to, ec);
+    std::set<fs::path> fresh;
+    for (const auto& item : fs::directory_iterator(from, ec)) {
+        const fs::path name = item.path().filename(), target = to / name;
+        fresh.insert(name);
+        if (fs::exists(target, ec) && fs::file_size(target, ec) == item.file_size(ec) &&
+            read_file(target) == read_file(item.path()))
+            continue;
+        fs::remove(target, ec);
+        fs::rename(item.path(), target, ec);
+    }
+    std::vector<fs::path> stale;
+    for (const auto& item : fs::directory_iterator(to, ec))
+        if (!fresh.count(item.path().filename())) stale.push_back(item.path());
+    for (const fs::path& path : stale) fs::remove_all(path, ec);
+    fs::remove_all(from, ec);
+}
+
 // The images, the configs and then the C: work\recomp holds the game's banks,
 // work\gen the FreeBIOS banks. Progress lines go to stdout as
 // "[progress] N/M bank (seconds)"; false and *error when anything failed.
@@ -42,7 +67,7 @@ inline bool recompile_banks(const Rom& rom, const std::vector<Bank>& banks,
     };
     std::error_code ec;
     const fs::path inputs = o.work / "inputs", configs = o.work / "banks";
-    const fs::path out = o.work / "recomp", gen = o.work / "gen", logs = o.work / "logs";
+    const fs::path out = o.work / "recomp.new", gen = o.work / "gen.new", logs = o.work / "logs";
     for (const fs::path& dir : {out, gen}) fs::remove_all(dir, ec);   // stale shards would get linked
     for (const fs::path& dir : {inputs, configs, out, gen, logs}) fs::create_directories(dir, ec);
 
@@ -122,6 +147,9 @@ inline bool recompile_banks(const Rom& rom, const std::vector<Bank>& banks,
         *error = "the recompiler failed for " + failed + "; its logs are in " + logs.u8string();
         return false;
     }
+    sync_folder(out, o.work / "recomp");
+    if (o.ndsrecomp.empty()) fs::remove_all(gen, ec);
+    else sync_folder(gen, o.work / "gen");
     return true;
 }
 
