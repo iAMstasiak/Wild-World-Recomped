@@ -9,7 +9,7 @@
 # recomp-ui (MIT) only: the runner (GPL) stays a separate program.
 
 cmake_minimum_required(VERSION 3.24)
-project(wild_world_recomped_launcher C CXX)
+project(wild_world_recomped_launcher VERSION 0.1 LANGUAGES C CXX)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -36,7 +36,8 @@ target_link_libraries(WildWorldRecomped PRIVATE SDL3::SDL3 opengl32)
 target_compile_definitions(WildWorldRecomped PRIVATE
     ACWW_ROOT="${ACWW_ROOT}"
     ACWW_RUNNER="${ACWW_RUNNER}"
-    ACWW_DLL_DIR="${ACWW_DLL_DIR}")
+    ACWW_DLL_DIR="${ACWW_DLL_DIR}"
+    ACWW_VERSION="${PROJECT_VERSION}")
 if(TARGET SDL3::SDL3-shared)
     add_custom_command(TARGET WildWorldRecomped POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -49,6 +50,18 @@ add_custom_command(TARGET WildWorldRecomped POST_BUILD
     COMMAND ${CMAKE_COMMAND} "-DEXE=$<TARGET_FILE:WildWorldRecomped>"
         "-DDLL_DIR=${ACWW_DLL_DIR}" "-DOBJDUMP=${CMAKE_OBJDUMP}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_dlls.cmake"
+    VERBATIM)
+
+# The launcher's font: Nunito SemiBold (SIL Open Font License, assets/OFL.txt),
+# which recomp-ui picks up as assets/fonts/launcher.ttf (patch_recompui.py).
+add_custom_command(TARGET WildWorldRecomped POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WildWorldRecomped>/assets/fonts"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/Nunito-SemiBold.ttf"
+        "$<TARGET_FILE_DIR:WildWorldRecomped>/assets/fonts/launcher.ttf"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/OFL.txt"
+        "$<TARGET_FILE_DIR:WildWorldRecomped>/assets/fonts/Nunito-OFL.txt"
     VERBATIM)
 
 # The Mods page, where Wild World's own options go (game_options.h).

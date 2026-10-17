@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "controls.h"
 #include "game_options.h"
 #include "launcher_profile.h"
 #include "recomp_launcher.h"
@@ -49,7 +50,8 @@ const char* const kCredits =
     "your own copy of the game (USA, Rev 1).\n"
     "\n"
     "Built on ndsrecomp (static recompilation for the Nintendo DS), the melonDS "
-    "device models, recomp-ui (this launcher) and Dear ImGui.\n"
+    "device models, recomp-ui (this launcher) and Dear ImGui. The launcher's font "
+    "is Nunito by the Nunito Project Authors (SIL Open Font License).\n"
     "\n"
     "Animal Crossing is a trademark of Nintendo. This project is not affiliated "
     "with or endorsed by Nintendo.";
@@ -172,6 +174,9 @@ int main(int argc, char** argv) {
     std::memset(&game, 0, sizeof(game));
     launcher_profile_apply("nds", &game);   // theme, DS art, the DS's settings
     game.theme = "acww";                    // Wild World colours (tools\patch_recompui.py)
+    // The subtitle under the title. Not GameInfo.platform: recomp-ui picks the
+    // console profile by that, so it stays "NINTENDO DS" (patch_recompui.py).
+    _putenv("ACWW_LAUNCHER_SUBTITLE=Animal Crossing: Wild World  \u00B7  v" ACWW_VERSION);
     game.name = "Wild World Recomped";
     game.region = "USA";
     game.known_sha1_hex = kSha1;
@@ -190,6 +195,8 @@ int main(int argc, char** argv) {
     game.num_display_layouts = 2;
     game.credits_text = kCredits;
     game.mods = &provider;
+    game.assist_binding_labels = nullptr;   // the stylus keys are set in game.toml for now
+    game.assist_binding_count = 0;
 
     RecompLauncherCSettings settings;
     std::memset(&settings, 0, sizeof(settings));
@@ -202,9 +209,33 @@ int main(int argc, char** argv) {
     settings.display_layout = file.get("display", "screen_layout", "stacked") == "separate";
     settings.skip_launcher = 0;
 
+    // The Configure page edits these; keybinds.ini keeps them (controls.h).
+    acww::Controls controls = acww::read_controls("keybinds.ini");
+    std::error_code no_file;
+    if (!std::filesystem::exists("keybinds.ini", no_file))
+        acww::write_controls("keybinds.ini", controls);   // before recomp-ui writes its own
+    for (int b = 0; b < acww::kDsButtons; ++b) {
+        settings.player_key_bind[0][b] = controls.key[b];
+        settings.player_pad_bind[0][b] = controls.pad[b];
+    }
+    // Settings' Restore Defaults and Configure's Reset to Defaults use these.
+    RecompLauncherCSettings defaults = settings;
+    defaults.internal_resolution = 3;
+    defaults.fullscreen = 0;
+    defaults.display_layout = 0;
+    const acww::Controls game_controls = acww::default_controls();
+    for (int b = 0; b < acww::kDsButtons; ++b) {
+        defaults.player_key_bind[0][b] = game_controls.key[b];
+        defaults.player_pad_bind[0][b] = game_controls.pad[b];
+    }
+    game.default_settings = &defaults;
+
     const std::string last_rom = file.get("launcher", "rom", "acww.nds");
     const std::string box_art = acww::make_box_art(last_rom);
-    if (!box_art.empty()) game.boxart_path = box_art.c_str();
+    if (!box_art.empty()) {
+        game.boxart_path = box_art.c_str();
+        _putenv(("ACWW_LAUNCHER_BRAND=" + box_art).c_str());   // the leaf in the corner too
+    }
     char rom[1024] = {0};
     const int result = recomp_launcher_run_window("Wild World Recomped", &settings, &game,
                                                   "assets", last_rom.c_str(), rom, sizeof(rom));
@@ -219,6 +250,12 @@ int main(int argc, char** argv) {
              acww::SettingsFile::text(kLayouts[settings.display_layout == 1 ? 1 : 0]));
     file.set("launcher", "skip", acww::SettingsFile::flag(settings.skip_launcher != 0));
     options.store(file);
+    for (int b = 0; b < acww::kDsButtons; ++b) {
+        controls.key[b] = settings.player_key_bind[0][b];
+        controls.pad[b] = settings.player_pad_bind[0][b];
+    }
+    if (!acww::write_controls("keybinds.ini", controls))
+        tell("Your controls couldn't be saved to keybinds.ini.");
     const std::string chosen = rom[0] ? rom : last_rom;
     if (result != RECOMP_LAUNCHER_RESULT_QUIT) file.set("launcher", "rom", acww::SettingsFile::text(chosen));
     if (!file.save("settings.toml"))

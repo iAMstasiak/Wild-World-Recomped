@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
-"""Give recomp-ui a "Wild World" colour theme for the launcher.
+"""Wild World's changes to recomp-ui: its look, and rebinding that sticks.
 
 recomp-ui (the launcher window, MIT) only has built-in themes, one per
 console. This adds launcher_theme_acww() to its launcher_theme.h and lets
 launcher_theme_by_name("acww") pick it; launcher/main.cpp asks for it. The
 colours: a dark evening-green ground, the leaf's green for Play, warm
 bell-gold headings, cream text and sky-blue focus outlines.
+
+It also fixes the Configure page for consoles whose controls the host keeps
+(the DS): the page shows Settings.player_key_bind / player_pad_bind, but a
+key or controller button pressed to rebind went to recomp-ui's own
+keybinds.ini store instead, so the chip never changed. Now it goes into the
+settings the page shows, which launcher/main.cpp saves to keybinds.ini.
+
+For a one-player game, the dashboard card and the Configure page drop
+their "PLAYER 1" labels. The launcher can bring its own font
+(assets/fonts/launcher.ttf, beside the .exe) and its own corner picture
+(the file named by the ACWW_LAUNCHER_BRAND environment variable) and its
+own subtitle under the title (ACWW_LAUNCHER_SUBTITLE; GameInfo.platform has
+to stay "NINTENDO DS", because recomp-ui picks the console profile by it).
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -18,6 +31,7 @@ import argparse
 from pathlib import Path
 
 THEME = "src/common/launcher_theme.h"
+IMGUI = "src/common/backends/imgui/launcher_imgui.cpp"
 
 # (file, text to find, replacement, marker that shows the edit is already in)
 EDITS = [
@@ -59,6 +73,117 @@ EDITS = [
      "        (name[3] == 'w' || name[3] == 'W'))\n"
      "        return launcher_theme_acww();   // acwwrecomp\n",
      "return launcher_theme_acww();"),
+    (IMGUI,
+     "bool try_capture(LauncherModel* m, const SDL_Event& ev) {\n",
+     "// acwwrecomp: on a console whose controls the host keeps (the Controller\n"
+     "// page shows Settings.player_key_bind / player_pad_bind), a captured player\n"
+     "// key or controller input belongs there too, not in keybinds.ini.\n"
+     "static bool acww_settings_player_binds(const LauncherModel* m) {\n"
+     "    const SystemProfile* prof = (const SystemProfile*)m->profile;\n"
+     "    return m->settings_bindings && !m->capture_assist &&\n"
+     "           !(prof && prof->id && !strcmp(prof->id, \"psx\"));\n"
+     "}\n"
+     "\n"
+     "bool try_capture(LauncherModel* m, const SDL_Event& ev) {\n",
+     "static bool acww_settings_player_binds("),
+    (IMGUI,
+     "        if (m->capturing && m->capture_pad) {\n"
+     "            if (m->capture_assist)\n"
+     "                launcher_model_set_captured_pad(m, 0);\n",
+     "        if (m->capturing && m->capture_pad) {\n"
+     "            if (m->capture_assist || acww_settings_player_binds(m))   // acwwrecomp\n"
+     "                launcher_model_set_captured_pad(m, 0);\n",
+     "if (m->capture_assist || acww_settings_player_binds(m))   // acwwrecomp\n"
+     "                launcher_model_set_captured_pad(m, 0);"),
+    (IMGUI,
+     "            const SystemProfile* prof = (const SystemProfile*)m->profile;\n"
+     "            if (m->capture_assist)\n"
+     "                launcher_model_set_captured_key(m, 0);\n",
+     "            const SystemProfile* prof = (const SystemProfile*)m->profile;\n"
+     "            if (m->capture_assist || acww_settings_player_binds(m))   // acwwrecomp\n"
+     "                launcher_model_set_captured_key(m, 0);\n",
+     "if (m->capture_assist || acww_settings_player_binds(m))   // acwwrecomp\n"
+     "                launcher_model_set_captured_key(m, 0);"),
+    (IMGUI,
+     "    if (m->capturing && m->capture_pad) {\n"
+     "        if (m->settings_bindings && m->capture_assist) {\n",
+     "    if (m->capturing && m->capture_pad) {\n"
+     "        if (acww_settings_player_binds(m)) {   // acwwrecomp: a player's pad chip\n"
+     "            int value = 0;\n"
+     "            if (ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {\n"
+     "                value = RECOMP_LAUNCHER_PAD_BUTTON((int)LNG_EVGBTN(ev));\n"
+     "            } else if (ev.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {\n"
+     "                const int val = (int)LNG_EVGAXISVAL(ev);\n"
+     "                if (val >= 20000 || val <= -20000)\n"
+     "                    value = RECOMP_LAUNCHER_PAD_AXIS((int)LNG_EVGAXIS(ev), val > 0);\n"
+     "            }\n"
+     "            if (value) {\n"
+     "                launcher_model_set_captured_pad(m, value);\n"
+     "                if (m->map_all_active) launcher_model_map_all_advance(m);\n"
+     "                else                   launcher_model_cancel_capture(m);\n"
+     "            }\n"
+     "            return true;\n"
+     "        }\n"
+     "        if (m->settings_bindings && m->capture_assist) {\n",
+     "acwwrecomp: a player's pad chip"),
+    (IMGUI,
+     "        if (m->settings_bindings && m->capture_assist)\n"
+     "            launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));\n",
+     "        if (m->settings_bindings && m->capture_assist)\n"
+     "            launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));\n"
+     "        else if (acww_settings_player_binds(m))   // acwwrecomp\n"
+     "            launcher_model_set_captured_key(m, (int)LNG_EVSCAN(ev));\n",
+     "else if (acww_settings_player_binds(m))   // acwwrecomp"),
+    # One player: no "PLAYER 1" on the dashboard card or the Configure page.
+    (IMGUI,
+     "    ImGui::PushID(p);\n"
+     "    eyebrow(eb);\n",
+     "    ImGui::PushID(p);\n"
+     "    if (m->player_count > 1 || m->netplay_supported)   // acwwrecomp: one player\n"
+     "        eyebrow(eb);\n",
+     "if (m->player_count > 1 || m->netplay_supported)   // acwwrecomp: one player"),
+    (IMGUI,
+     "        ImGui::Text(\"%s %d\", ui_text(\"CONTROLLER - PLAYER\"), p + 1); "
+     "ImGui::PopStyleColor(); ImGui::Spacing();\n",
+     "        if (m->player_count > 1)\n"
+     "            ImGui::Text(\"%s %d\", ui_text(\"CONTROLLER - PLAYER\"), p + 1);\n"
+     "        else\n"
+     "            ImGui::TextUnformatted(ui_text(\"CONTROLLER\"));   // acwwrecomp: one player\n"
+     "        ImGui::PopStyleColor(); ImGui::Spacing();\n",
+     "ImGui::TextUnformatted(ui_text(\"CONTROLLER\"));   // acwwrecomp: one player"),
+    (IMGUI,
+     "        if (has_pad) ImGui::Text(\"INPUT BINDINGS - PLAYER %d\", p + 1);\n",
+     "        if (m->player_count <= 1)   // acwwrecomp: one player\n"
+     "            ImGui::TextUnformatted(has_pad ? \"INPUT BINDINGS\" : \"KEYBOARD BINDINGS\");\n"
+     "        else if (has_pad) ImGui::Text(\"INPUT BINDINGS - PLAYER %d\", p + 1);\n",
+     "has_pad ? \"INPUT BINDINGS\" : \"KEYBOARD BINDINGS\""),
+    # The game's own font and corner picture, when it brings them.
+    (IMGUI,
+     "    std::string font_path = asset(\"assets/fonts/LatoLatin-Regular.ttf\");\n",
+     "    // acwwrecomp: the game's own font, when it ships one.\n"
+     "    std::string font_path = asset(\"assets/fonts/launcher.ttf\");\n"
+     "    if (FILE* game_font = std::fopen(font_path.c_str(), \"rb\")) std::fclose(game_font);\n"
+     "    else font_path = asset(\"assets/fonts/LatoLatin-Regular.ttf\");\n",
+     "acwwrecomp: the game's own font"),
+    (IMGUI,
+     "        if (brand_file && brand_file[0])\n"
+     "            g_brand = launcher_texture_load(\n",
+     "        // acwwrecomp: the game's own corner picture, when the host names one.\n"
+     "        const char* acww_brand = std::getenv(\"ACWW_LAUNCHER_BRAND\");\n"
+     "        if (acww_brand && acww_brand[0])\n"
+     "            g_brand = launcher_texture_load(acww_brand);\n"
+     "        else if (brand_file && brand_file[0])\n"
+     "            g_brand = launcher_texture_load(\n",
+     "std::getenv(\"ACWW_LAUNCHER_BRAND\")"),
+    (IMGUI,
+     "            ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));\n"
+     "            ImGui::TextUnformatted(m->platform);\n",
+     "            ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));\n"
+     "            // acwwrecomp: the game's own subtitle, when the host names one.\n"
+     "            const char* acww_subtitle = std::getenv(\"ACWW_LAUNCHER_SUBTITLE\");\n"
+     "            ImGui::TextUnformatted(acww_subtitle && acww_subtitle[0] ? acww_subtitle\n"
+     "                                                                     : m->platform);\n",
+     "std::getenv(\"ACWW_LAUNCHER_SUBTITLE\")"),
 ]
 
 
