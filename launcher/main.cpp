@@ -24,6 +24,7 @@
 #include "recomp_launcher.h"
 #include "rom_art.h"
 #include "settings_file.h"
+#include "saves_page.h"
 #include "town.h"
 
 #ifndef NOMINMAX   // MinGW's C++ library already defines it
@@ -248,7 +249,8 @@ int main(int argc, char** argv) {
             ? std::string(game.region) : title.publisher + "  \u00B7  " + game.region;
         _putenv(("ACWW_LAUNCHER_GAME_DETAIL=" + detail).c_str());
     }
-    acww::set_town_card("generated\\town.toml");   // written by the game when it saves
+    acww::set_town_card(acww::saves::kSave);   // the Save Info card, from the save itself
+    acww_saves_page = acww::saves::draw;        // the Saves page (saves_page.h)
     const acww::Background background = acww::make_background();
     if (!background.path.empty()) {
         _putenv(("ACWW_LAUNCHER_BACKGROUND=" + background.path).c_str());

@@ -8,8 +8,6 @@
 // game reloads that code. Every few seconds the room, names and bells are
 // read and shown on the player's Discord profile. ACWW_NO_MODS=1 and
 // ACWW_NO_DISCORD=1 switch the last two off (play.ps1 -NoMods, -NoDiscord).
-// Each time the game saves, the player's name, town and bells go to
-// generated\town.toml for the launcher's town card.
 #pragma once
 
 #include <algorithm>
@@ -121,8 +119,6 @@ struct State {
     std::vector<uint32_t> unnamed_rooms;
     long long started_at = 0;
     uint64_t frames = 0;
-    std::filesystem::path save_path;              // acww.sav
-    std::filesystem::file_time_type save_time{};  // when it was last written
 };
 
 inline State& state() {
@@ -559,31 +555,6 @@ inline void presence_frame(State& s) {
     s.presence->wake.notify_one();
 }
 
-// ---- the launcher's town card ------------------------------------------------
-
-// Once acww.sav has been written again (one in-game save), who, where and how
-// many bells it now holds, for the launcher (launcher/town.h).
-inline void town_frame(State& s) {
-    std::error_code ec;
-    const auto written = std::filesystem::last_write_time(s.save_path, ec);
-    if (ec || written == s.save_time) return;
-    s.save_time = written;
-    const std::string player = game_text(kPlayerName, 8);
-    const std::string town = game_text(kTownName, 8);
-    if (player.empty() || town.empty()) return;   // no town in memory yet
-    const uint32_t bells = peek32(kBells);
-    const std::filesystem::path folder = s.folder / "generated";
-    std::filesystem::create_directories(folder, ec);
-    std::ofstream file(folder / "town.toml", std::ios::binary | std::ios::trunc);
-    file << "# Written by the game each time it saves; the launcher shows it.\n"
-         << "player = " << json_text(player) << "\n"
-         << "town = " << json_text(town) << "\n"
-         << "bells = " << bells << "\n"
-         << "saved = " << static_cast<long long>(std::time(nullptr)) << "\n";
-    std::fprintf(stderr, "[town] %s of %s, %s bells\n", player.c_str(), town.c_str(),
-                 with_commas(bells).c_str());
-}
-
 // ---- hooks --------------------------------------------------------------------
 
 // Once, before the save is loaded: folder holds game.toml and settings.toml.
@@ -594,9 +565,6 @@ inline void start(const std::string& config_path, const std::string& save_path) 
     s.folder = std::filesystem::path(config_path).parent_path();
     if (s.folder.empty()) s.folder = ".";
     s.started_at = static_cast<long long>(std::time(nullptr));
-    s.save_path = save_path;
-    std::error_code saved_ec;
-    s.save_time = std::filesystem::last_write_time(s.save_path, saved_ec);
 
     toml::table settings;
     std::error_code ec;
@@ -640,7 +608,6 @@ inline void frame() {
     ++s.frames;
     if (s.frames % 15 == 0 && !s.mods.empty()) mods_frame(s);
     if (s.presence_on && s.frames % 300 == 120) presence_frame(s);
-    if (s.frames % 60 == 30) town_frame(s);
 }
 
 }  // namespace acww_game

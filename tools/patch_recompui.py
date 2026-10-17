@@ -25,6 +25,10 @@ The game card can show the game's own name and a detail line in place of its
 Region/File rows (ACWW_LAUNCHER_GAME_TITLE, ACWW_LAUNCHER_GAME_DETAIL), and a
 card of its own under the controller card (ACWW_LAUNCHER_TOWN for its
 heading, ACWW_LAUNCHER_TOWN_1, _2, ... for "Label<tab>Value" rows or lines).
+The host can draw a page of its own (Wild World's Saves page): when it sets
+acww_saves_page, the dashboard gets a Saves button and that page is drawn in
+place of the Assist Tools view, which Wild World doesn't use. acww_ui_* give
+the page the launcher's cards, headings and colours.
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -304,6 +308,59 @@ EDITS = [
      "    draw_controllers_row(m, *th);\n"
      "    acww_town_card(*th);\n",
      "acww_town_card(*th);"),
+    (IMGUI,
+     "const LauncherTheme* volatile g_th = nullptr;\n",
+     "const LauncherTheme* volatile g_th = nullptr;\n"
+     "\n"
+     "// acwwrecomp: a page the host draws itself (Wild World's Saves page). When the\n"
+     "// host sets this, the dashboard gets a Saves button and the page is drawn in\n"
+     "// place of the Assist Tools view, which Wild World doesn't use.\n"
+     "void (*acww_saves_page)() = nullptr;\n",
+     "void (*acww_saves_page)() = nullptr;"),
+    (IMGUI,
+     "                              (m->has_assist_tools ? 1 : 0) +\n",
+     "                              (acww_saves_page ? 1 : 0) +\n"
+     "                              (m->has_assist_tools ? 1 : 0) +\n",
+     "(acww_saves_page ? 1 : 0)"),
+    (IMGUI,
+     "            if (ImGui::Button(ui_text(\"Settings\"), ImVec2(w, px(34))))\n"
+     "                launcher_model_set_view(m, LNG_VIEW_SETTINGS);\n",
+     "            if (ImGui::Button(ui_text(\"Settings\"), ImVec2(w, px(34))))\n"
+     "                launcher_model_set_view(m, LNG_VIEW_SETTINGS);\n"
+     "            if (acww_saves_page) {   // acwwrecomp: Wild World's Saves page\n"
+     "                ImGui::SameLine(0, gap);\n"
+     "                if (ImGui::Button(ui_text(\"Saves\"), ImVec2(w, px(34))))\n"
+     "                    launcher_model_set_view(m, LNG_VIEW_ASSIST_TOOLS);\n"
+     "            }\n",
+     "ui_text(\"Saves\")"),
+    (IMGUI,
+     "        case LNG_VIEW_ASSIST_TOOLS: draw_assist_tools(m, th);        break;\n",
+     "        case LNG_VIEW_ASSIST_TOOLS:   // acwwrecomp: or Wild World's Saves page\n"
+     "            if (acww_saves_page) acww_saves_page(); else draw_assist_tools(m, th);\n"
+     "            break;\n",
+     "if (acww_saves_page) acww_saves_page();"),
+    (IMGUI,
+     "// ---- launcher_panels.h contract implementation",
+     "// acwwrecomp: what the host's own page draws with, so it matches the rest of\n"
+     "// the launcher (launcher/saves_page.h).\n"
+     "bool acww_ui_begin_card(const char* id, float width, bool fill) {\n"
+     "    return begin_panel(id, width, fill);\n"
+     "}\n"
+     "void acww_ui_end_card() { end_panel(); }\n"
+     "void acww_ui_heading(const char* text) { eyebrow(text); }\n"
+     "ImVec4 acww_ui_color(int which) {   // 0 text, 1 muted, 2 good, 3 warning, 4 heading\n"
+     "    const LauncherTheme& th = *g_th;\n"
+     "    switch (which) {\n"
+     "        case 1: return col(th.text_muted);\n"
+     "        case 2: return col(th.good);\n"
+     "        case 3: return col(th.warn);\n"
+     "        case 4: return col(th.accent2);\n"
+     "        default: return col(th.text);\n"
+     "    }\n"
+     "}\n"
+     "\n"
+     "// ---- launcher_panels.h contract implementation",
+     "ImVec4 acww_ui_color(int which)"),
 ]
 
 
