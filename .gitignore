@@ -15,3 +15,6 @@ hostprof-*.ndshp
 performance-*.jsonl
 launcher-window.ini
 rom.cfg
+
+# The player build tool's sources (a build-folder rule above would hide them).
+!launcher/builder/
