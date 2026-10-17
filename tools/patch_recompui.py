@@ -21,6 +21,10 @@ own subtitle under the title (ACWW_LAUNCHER_SUBTITLE; GameInfo.platform has
 to stay "NINTENDO DS", because recomp-ui picks the console profile by it).
 And a background pattern drawn faintly behind everything
 (ACWW_LAUNCHER_BACKGROUND, ACWW_LAUNCHER_BACKGROUND_MODE = cover or tile).
+The game card can show the game's own name and a detail line in place of its
+Region/File rows (ACWW_LAUNCHER_GAME_TITLE, ACWW_LAUNCHER_GAME_DETAIL), and a
+card of its own under the controller card (ACWW_LAUNCHER_TOWN for its
+heading, ACWW_LAUNCHER_TOWN_1, _2, ... for "Label<tab>Value" rows or lines).
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -237,6 +241,69 @@ EDITS = [
      "}\n"
      "void end_panel() { ImGui::EndChild(); }\n",
      "acwwrecomp: solid cards"),
+    (IMGUI,
+     "    if (ImGui::BeginTable(\"meta\", 2, ImGuiTableFlags_SizingStretchProp)) {\n",
+     "    // acwwrecomp: the game's own name, centred, in place of Region/File.\n"
+     "    const char* acww_title = std::getenv(\"ACWW_LAUNCHER_GAME_TITLE\");\n"
+     "    const char* acww_detail = std::getenv(\"ACWW_LAUNCHER_GAME_DETAIL\");\n"
+     "    if (acww_title && acww_title[0]) {\n"
+     "        const float tw = ImGui::CalcTextSize(acww_title).x;\n"
+     "        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availw > tw ? (availw - tw) * 0.5f : 0.0f));\n"
+     "        ImGui::TextUnformatted(acww_title);\n"
+     "        if (acww_detail && acww_detail[0]) {\n"
+     "            const float dw = ImGui::CalcTextSize(acww_detail).x;\n"
+     "            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availw > dw ? (availw - dw) * 0.5f : 0.0f));\n"
+     "            ImGui::TextColored(col(th.text_muted), \"%s\", acww_detail);\n"
+     "        }\n"
+     "    } else if (ImGui::BeginTable(\"meta\", 2, ImGuiTableFlags_SizingStretchProp)) {\n",
+     "std::getenv(\"ACWW_LAUNCHER_GAME_TITLE\")"),
+    (IMGUI,
+     "void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {\n"
+     "    draw_controllers_row(m, *th);\n",
+     "// acwwrecomp: a card under the controller card, from ACWW_LAUNCHER_TOWN (its\n"
+     "// heading) and ACWW_LAUNCHER_TOWN_1, _2, ... (\"Label<tab>Value\", or a line).\n"
+     "static void acww_town_card(const LauncherTheme& th) {\n"
+     "    const char* heading = std::getenv(\"ACWW_LAUNCHER_TOWN\");\n"
+     "    if (!heading || !heading[0]) return;\n"
+     "    ImGui::Dummy(ImVec2(0, px(th.spacing_md)));\n"
+     "    if (begin_panel(\"acww_town\")) {\n"
+     "        eyebrow(heading);\n"
+     "        bool in_table = false;\n"
+     "        for (int i = 1; i <= 8; ++i) {\n"
+     "            char name[32];\n"
+     "            std::snprintf(name, sizeof(name), \"ACWW_LAUNCHER_TOWN_%d\", i);\n"
+     "            const char* row = std::getenv(name);\n"
+     "            if (!row || !row[0]) break;\n"
+     "            const char* tab = std::strchr(row, '\\t');\n"
+     "            if (tab && !in_table &&\n"
+     "                ImGui::BeginTable(\"acww_town_rows\", 2, ImGuiTableFlags_SizingStretchProp)) {\n"
+     "                in_table = true;\n"
+     "                ImGui::TableSetupColumn(\"k\", ImGuiTableColumnFlags_WidthFixed, px(96));\n"
+     "                ImGui::TableSetupColumn(\"v\", ImGuiTableColumnFlags_WidthStretch);\n"
+     "            }\n"
+     "            if (tab && in_table) {\n"
+     "                const std::string label(row, tab);\n"
+     "                ImGui::TableNextRow();\n"
+     "                ImGui::TableNextColumn();\n"
+     "                ImGui::TextColored(col(th.text_muted), \"%s\", label.c_str());\n"
+     "                ImGui::TableNextColumn();\n"
+     "                ImGui::TextUnformatted(tab + 1);\n"
+     "            } else if (!tab) {\n"
+     "                if (in_table) { ImGui::EndTable(); in_table = false; }\n"
+     "                ImGui::PushStyleColor(ImGuiCol_Text, col(th.text_muted));\n"
+     "                ImGui::TextWrapped(\"%s\", row);\n"
+     "                ImGui::PopStyleColor();\n"
+     "            }\n"
+     "        }\n"
+     "        if (in_table) ImGui::EndTable();\n"
+     "    }\n"
+     "    end_panel();\n"
+     "}\n"
+     "\n"
+     "void panel_controller_draw(LauncherModel* m, const LauncherTheme* th) {\n"
+     "    draw_controllers_row(m, *th);\n"
+     "    acww_town_card(*th);\n",
+     "acww_town_card(*th);"),
 ]
 
 

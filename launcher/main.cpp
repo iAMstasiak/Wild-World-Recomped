@@ -24,6 +24,7 @@
 #include "recomp_launcher.h"
 #include "rom_art.h"
 #include "settings_file.h"
+#include "town.h"
 
 #ifndef NOMINMAX   // MinGW's C++ library already defines it
 #define NOMINMAX
@@ -239,6 +240,15 @@ int main(int argc, char** argv) {
         game.boxart_path = box_art.c_str();
         _putenv(("ACWW_LAUNCHER_BRAND=" + box_art).c_str());   // the leaf in the corner too
     }
+    // The game card shows the ROM's own name instead of Region/File rows.
+    const acww::RomTitle title = acww::read_banner_title(last_rom);
+    if (!title.name.empty()) {
+        _putenv(("ACWW_LAUNCHER_GAME_TITLE=" + title.name).c_str());
+        const std::string detail = title.publisher.empty()
+            ? std::string(game.region) : title.publisher + "  \u00B7  " + game.region;
+        _putenv(("ACWW_LAUNCHER_GAME_DETAIL=" + detail).c_str());
+    }
+    acww::set_town_card("generated\\town.toml");   // written by the game when it saves
     const acww::Background background = acww::make_background();
     if (!background.path.empty()) {
         _putenv(("ACWW_LAUNCHER_BACKGROUND=" + background.path).c_str());

@@ -70,6 +70,51 @@ inline bool write_tga(const std::filesystem::path& path, const std::vector<uint8
     return static_cast<bool>(file);
 }
 
+// The game's English name and publisher from the ROM's banner, e.g.
+// "Animal Crossing\nWild World\nNintendo" -> {"Animal Crossing: Wild World",
+// "Nintendo"}. Empty when the file isn't a DS game with a banner.
+struct RomTitle {
+    std::string name;
+    std::string publisher;
+};
+
+inline RomTitle read_banner_title(const std::string& rom) {
+    std::ifstream file(rom, std::ios::binary);
+    uint8_t header[0x6C];
+    if (!file.read(reinterpret_cast<char*>(header), sizeof(header))) return {};
+    const uint32_t banner = header[0x68] | header[0x69] << 8 | header[0x6A] << 16 |
+                            static_cast<uint32_t>(header[0x6B]) << 24;
+    if (banner == 0) return {};
+    uint8_t raw[0x100];   // the English title: 128 UTF-16 characters
+    file.seekg(banner + 0x340);
+    if (!file.read(reinterpret_cast<char*>(raw), sizeof(raw))) return {};
+    std::vector<std::string> lines(1);
+    for (int i = 0; i < 0x100; i += 2) {
+        const unsigned c = raw[i] | raw[i + 1] << 8;
+        if (c == 0) break;
+        if (c == '\n') {
+            lines.emplace_back();
+        } else if (c < 0x80) {
+            lines.back() += static_cast<char>(c);
+        } else if (c < 0x800) {
+            lines.back() += static_cast<char>(0xC0 | c >> 6);
+            lines.back() += static_cast<char>(0x80 | (c & 0x3F));
+        } else {
+            lines.back() += static_cast<char>(0xE0 | c >> 12);
+            lines.back() += static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+            lines.back() += static_cast<char>(0x80 | (c & 0x3F));
+        }
+    }
+    RomTitle title;
+    if (lines.size() >= 2) {
+        title.publisher = lines.back();
+        lines.pop_back();
+    }
+    for (const std::string& line : lines)
+        title.name += (title.name.empty() ? "" : ": ") + line;
+    return title;
+}
+
 // The box art for this ROM, written fresh; its full path, or "" when the
 // ROM isn't there yet or has no icon (the launcher then draws a cartridge).
 inline std::string make_box_art(const std::string& rom) {
