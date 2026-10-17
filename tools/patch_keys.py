@@ -5,8 +5,9 @@ The launcher's Configure page saves the keyboard and controller controls to
 keybinds.ini. The runner had its own fixed ones (Z/X for A/B and so on); now
 key_bit() and controller_bit() in frontend.cpp look them up in keybinds.ini
 first, the frame's stick poll adds triggers and sticks bound there, and the
-fixed controls stay only when there is no keybinds.ini. The reading lives in
-tools/acww_keys.h, which this copies into the runner.
+fixed controls stay only when there is no keybinds.ini. The startup message
+lists the keys in use. The reading lives in tools/acww_keys.h, which this
+copies into the runner.
 
 Run after the other patch_*.py scripts. Safe to run again: edits that are
 already there are skipped, and the header is refreshed. Rebuild the runner
@@ -54,6 +55,14 @@ EDITS = [
      "                    },\n"
      "                    stick_dir);\n",
      "acww_keys::poll_axes("),
+    (FRONTEND,
+     '        "[sdl] controls: gamepad=Player 1 | bottom mouse=touch | "\n'
+     '        "arrows=D-pad | Z=A X=B | A=Y S=X | Q=L W=R | "\n'
+     '        "Enter=Start Backspace=Select | Esc=settings%s\\n",\n',
+     '        "[sdl] controls: gamepad=Player 1 | bottom mouse=touch | "\n'
+     '        "%s | Esc=settings%s\\n",\n'
+     '        acww_keys::describe().c_str(),   // acwwrecomp: the keys in use\n',
+     "acww_keys::describe()"),
 ]
 
 

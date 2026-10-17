@@ -164,6 +164,31 @@ inline const Map& current() {
     return map;
 }
 
+// The startup message's list of keys: what keybinds.ini puts on each DS
+// button ("A=Z B=X ..."), or the built-in keys when there is no keybinds.ini.
+inline std::string describe() {
+    const Map& map = current();
+    if (!map.loaded)
+        return "arrows=D-pad | Z=A X=B | A=Y S=X | Q=L W=R | Enter=Start Backspace=Select";
+    static const struct { const char* name; uint16_t bit; } kDs[] = {
+        {"Up", 1u << 6}, {"Down", 1u << 7}, {"Left", 1u << 5}, {"Right", 1u << 4},
+        {"A", 1u << 0},  {"B", 1u << 1},    {"X", 1u << 10},   {"Y", 1u << 11},
+        {"L", 1u << 9},  {"R", 1u << 8},    {"Start", 1u << 3}, {"Select", 1u << 2},
+    };
+    std::string out = "keybinds.ini:";
+    for (const auto& ds : kDs) {
+        std::string keys;
+        for (int sc = 1; sc < static_cast<int>(map.keys.size()); ++sc) {
+            if (!(map.keys[static_cast<size_t>(sc)] & ds.bit)) continue;
+            const char* name = SDL_GetScancodeName(static_cast<SDL_Scancode>(sc));
+            if (!keys.empty()) keys += "/";
+            keys += name && name[0] ? name : "?";
+        }
+        out += std::string(" ") + ds.name + "=" + (keys.empty() ? "none" : keys);
+    }
+    return out;
+}
+
 // Called once per frame with the controller's axes (-1..1, triggers 0..1)
 // and the frame's stick helper, dir(value, bit, positive).
 template <class GetAxis, class Dir>
