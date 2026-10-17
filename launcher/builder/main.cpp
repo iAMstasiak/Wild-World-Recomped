@@ -16,16 +16,28 @@
 //
 // writes the recompiler's config for each bank, as make_banks.py does (minus
 // the runtime-only pages), and with --compare checks them against its own.
+//
+//   WildWorldBuild recompile --rom acww.nds --seeds generated\ingest\seeds
+//       --recompiler C:\acww\ndsrecomp\recompiler\build\nds_recompile.exe
+//       --work generated\build-check [--ndsrecomp C:\acww\ndsrecomp]
+//       [--jobs 8] [--compare generated\recomp]
+//
+// also recompiles every bank into C (and FreeBIOS, given --ndsrecomp), several
+// at once, and with --compare checks the game's C files against an earlier set.
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "files.h"
 #include "nds_rom.h"
 #include "plan.h"
+#include "recompile.h"
 #include "sha1.h"
 
 namespace fs = std::filesystem;
@@ -36,19 +48,8 @@ namespace {
 constexpr const char* kRomSha1 = "77fde3e30e1e6068395d1f96ea63be569b61c351";
 constexpr size_t kRomSize = 32u * 1024 * 1024;
 
-Bytes read_file(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return {};
-    return Bytes(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
-
-bool write_file(const fs::path& path, const Bytes& data) {
-    std::error_code ec;
-    fs::create_directories(path.parent_path(), ec);
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    file.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    return static_cast<bool>(file);
-}
+using wwbuild::read_file;
+using wwbuild::write_file;
 
 // The supported dump, or a sentence saying what is wrong with it.
 std::string check_rom(const Bytes& rom) {
@@ -196,15 +197,68 @@ int plan(int argc, char** argv) {
     return 0;
 }
 
+int recompile(int argc, char** argv) {
+    const std::string rom_path = arg_value(argc, argv, "--rom");
+    const std::string seeds_arg = arg_value(argc, argv, "--seeds");
+    const std::string compare_arg = arg_value(argc, argv, "--compare");
+    const std::string jobs_arg = arg_value(argc, argv, "--jobs");
+    wwbuild::RecompileOptions o;
+    o.work = fs::u8path(arg_value(argc, argv, "--work"));
+    o.recompiler = fs::u8path(arg_value(argc, argv, "--recompiler"));
+    o.ndsrecomp = fs::u8path(arg_value(argc, argv, "--ndsrecomp"));
+    o.jobs = jobs_arg.empty() ? static_cast<int>(std::min(8u, std::max(1u, std::thread::hardware_concurrency())))
+                              : std::max(1, std::atoi(jobs_arg.c_str()));
+    if (rom_path.empty() || seeds_arg.empty() || o.work.empty() || o.recompiler.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild recompile --rom FILE --seeds DIR --recompiler EXE "
+                             "--work DIR [--ndsrecomp DIR] [--jobs N] [--compare DIR]\n");
+        return 2;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    wwbuild::Rom rom;
+    if (!load_rom(rom_path, &rom)) return 1;
+    std::string report;
+    const std::vector<wwbuild::Bank> banks = wwbuild::plan_banks(rom, fs::u8path(seeds_arg), &report);
+    std::printf("%s\n%zu banks to recompile, %d at a time\n", report.c_str(), banks.size(), o.jobs);
+    std::fflush(stdout);
+    std::string error;
+    if (!wwbuild::recompile_banks(rom, banks, o, &error)) {
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    size_t files = 0, bytes = 0, same = 0, missing = 0;
+    std::vector<std::string> differ;
+    std::error_code ec;
+    for (const auto& item : fs::directory_iterator(o.work / "recomp", ec)) {
+        ++files;
+        bytes += static_cast<size_t>(item.file_size(ec));
+        if (compare_arg.empty()) continue;
+        const Bytes old = read_file(fs::u8path(compare_arg) / item.path().filename());
+        if (old.empty()) ++missing;
+        else if (old == read_file(item.path())) ++same;
+        else differ.push_back(item.path().filename().u8string());
+    }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    std::printf("recompiled into %zu files (%zu MB) in %.0f s\n", files, bytes >> 20, seconds);
+    if (!compare_arg.empty()) {
+        std::printf("compared with %s: %zu the same, %zu different, %zu missing there\n",
+                    compare_arg.c_str(), same, differ.size(), missing);
+        for (size_t i = 0; i < differ.size() && i < 20; ++i) std::printf("  different: %s\n", differ[i].c_str());
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     const std::string command = argc > 1 ? argv[1] : "";
     if (command == "unpack") return unpack(argc, argv);
     if (command == "plan") return plan(argc, argv);
+    if (command == "recompile") return recompile(argc, argv);
     std::fprintf(stderr,
                  "WildWorldBuild: builds Wild World Recomped from your own ROM.\n"
                  "  WildWorldBuild unpack --rom acww.nds --out DIR [--compare DIR]\n"
-                 "  WildWorldBuild plan --rom acww.nds --seeds DIR --out DIR [--compare DIR]\n");
+                 "  WildWorldBuild plan --rom acww.nds --seeds DIR --out DIR [--compare DIR]\n"
+                 "  WildWorldBuild recompile --rom acww.nds --seeds DIR --recompiler EXE --work DIR\n"
+                 "      [--ndsrecomp DIR] [--jobs N] [--compare DIR]\n");
     return 2;
 }
