@@ -64,6 +64,11 @@ add_custom_command(TARGET WildWorldRecomped POST_BUILD
         "$<TARGET_FILE_DIR:WildWorldRecomped>/assets/fonts/Nunito-OFL.txt"
     VERBATIM)
 
+# WildWorldBuild: builds the game from the player's own ROM (builder/main.cpp).
+# A console program the launcher runs; linked statically, so it needs no DLLs.
+add_executable(WildWorldBuild builder/main.cpp)
+target_link_options(WildWorldBuild PRIVATE -static)
+
 # The Mods page, where Wild World's own options go (game_options.h).
 set(RECOMP_UI_ENABLE_MODS ON)
 include("${RECOMP_UI_ROOT}/recomp_ui.cmake")
