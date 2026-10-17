@@ -19,6 +19,8 @@ their "PLAYER 1" labels. The launcher can bring its own font
 (the file named by the ACWW_LAUNCHER_BRAND environment variable) and its
 own subtitle under the title (ACWW_LAUNCHER_SUBTITLE; GameInfo.platform has
 to stay "NINTENDO DS", because recomp-ui picks the console profile by it).
+And a background pattern drawn faintly behind everything
+(ACWW_LAUNCHER_BACKGROUND, ACWW_LAUNCHER_BACKGROUND_MODE = cover or tile).
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -184,6 +186,57 @@ EDITS = [
      "            ImGui::TextUnformatted(acww_subtitle && acww_subtitle[0] ? acww_subtitle\n"
      "                                                                     : m->platform);\n",
      "std::getenv(\"ACWW_LAUNCHER_SUBTITLE\")"),
+    (IMGUI,
+     "void draw_crt_background(ImVec2 origin, ImVec2 size) {\n",
+     "// acwwrecomp: the game's background pattern (ACWW_LAUNCHER_BACKGROUND, a\n"
+     "// picture with see-through paper), faint over the ground colour: scaled to\n"
+     "// cover the window (ACWW_LAUNCHER_BACKGROUND_MODE=cover) or tiled.\n"
+     "static void acww_draw_pattern(ImDrawList* dl, ImVec2 origin, ImVec2 size) {\n"
+     "    static LauncherTexture tex = {0, 0, 0};\n"
+     "    static bool tried = false;\n"
+     "    if (!tried) {\n"
+     "        tried = true;\n"
+     "        const char* path = std::getenv(\"ACWW_LAUNCHER_BACKGROUND\");\n"
+     "        if (path && path[0]) tex = launcher_texture_load(path);\n"
+     "    }\n"
+     "    if (!tex.id || tex.w <= 0 || tex.h <= 0) return;\n"
+     "    const ImU32 tint = IM_COL32(255, 255, 255, 84);   // about a third\n"
+     "    const char* mode = std::getenv(\"ACWW_LAUNCHER_BACKGROUND_MODE\");\n"
+     "    if (mode && std::strcmp(mode, \"cover\") == 0) {\n"
+     "        const float s = std::max(size.x / tex.w, size.y / tex.h);\n"
+     "        const ImVec2 at(origin.x + (size.x - tex.w * s) * 0.5f,\n"
+     "                        origin.y + (size.y - tex.h * s) * 0.5f);\n"
+     "        dl->AddImage(tid(tex), at, ImVec2(at.x + tex.w * s, at.y + tex.h * s),\n"
+     "                     ImVec2(0, 0), ImVec2(1, 1), tint);\n"
+     "        return;\n"
+     "    }\n"
+     "    const float tw = px((float)tex.w), th = px((float)tex.h);\n"
+     "    if (tw < 8.0f || th < 8.0f) return;\n"
+     "    for (float y = origin.y; y < origin.y + size.y; y += th)\n"
+     "        for (float x = origin.x; x < origin.x + size.x; x += tw)\n"
+     "            dl->AddImage(tid(tex), ImVec2(x, y), ImVec2(x + tw, y + th),\n"
+     "                         ImVec2(0, 0), ImVec2(1, 1), tint);\n"
+     "}\n"
+     "\n"
+     "void draw_crt_background(ImVec2 origin, ImVec2 size) {\n",
+     "static void acww_draw_pattern("),
+    (IMGUI,
+     "                                imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));\n",
+     "                                imcol(th.accent, 0.0f),  imcol(th.accent, 0.0f));\n"
+     "    acww_draw_pattern(bg, origin, size);   // acwwrecomp\n",
+     "acww_draw_pattern(bg, origin, size);   // acwwrecomp"),
+    (IMGUI,
+     "    return ImGui::BeginChild(id, ImVec2(px(logical_w), 0.0f), flags, wflags);\n"
+     "}\n"
+     "void end_panel() { ImGui::EndChild(); }\n",
+     "    // acwwrecomp: solid cards, so the background pattern stays behind them.\n"
+     "    ImGui::PushStyleColor(ImGuiCol_ChildBg, col(g_th->panel));\n"
+     "    const bool open = ImGui::BeginChild(id, ImVec2(px(logical_w), 0.0f), flags, wflags);\n"
+     "    ImGui::PopStyleColor();\n"
+     "    return open;\n"
+     "}\n"
+     "void end_panel() { ImGui::EndChild(); }\n",
+     "acwwrecomp: solid cards"),
 ]
 
 

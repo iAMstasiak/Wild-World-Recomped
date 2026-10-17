@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "background.h"
 #include "controls.h"
 #include "game_options.h"
 #include "launcher_profile.h"
@@ -51,7 +52,9 @@ const char* const kCredits =
     "\n"
     "Built on ndsrecomp (static recompilation for the Nintendo DS), the melonDS "
     "device models, recomp-ui (this launcher) and Dear ImGui. The launcher's font "
-    "is Nunito by the Nunito Project Authors (SIL Open Font License).\n"
+    "is Nunito by the Nunito Project Authors (SIL Open Font License). The background "
+    "pattern is by usrkitt (alphacoders.com/users/profile/247170/usrkitt), used with "
+    "permission.\n"
     "\n"
     "Animal Crossing is a trademark of Nintendo. This project is not affiliated "
     "with or endorsed by Nintendo.";
@@ -235,6 +238,11 @@ int main(int argc, char** argv) {
     if (!box_art.empty()) {
         game.boxart_path = box_art.c_str();
         _putenv(("ACWW_LAUNCHER_BRAND=" + box_art).c_str());   // the leaf in the corner too
+    }
+    const acww::Background background = acww::make_background();
+    if (!background.path.empty()) {
+        _putenv(("ACWW_LAUNCHER_BACKGROUND=" + background.path).c_str());
+        _putenv((std::string("ACWW_LAUNCHER_BACKGROUND_MODE=") + background.mode).c_str());
     }
     char rom[1024] = {0};
     const int result = recomp_launcher_run_window("Wild World Recomped", &settings, &game,
