@@ -76,8 +76,9 @@ add_custom_command(TARGET WildWorldRecomped POST_BUILD
 # A console program the launcher runs; linked statically, so it needs no DLLs.
 add_executable(WildWorldBuild builder/main.cpp)
 target_link_options(WildWorldBuild PRIVATE -static)
-# WinHTTP (part of Windows) downloads the compiler pack (builder/pack.h).
-target_link_libraries(WildWorldBuild PRIVATE winhttp)
+# WinHTTP (part of Windows) downloads the compiler pack (builder/pack.h);
+# shell32 gives it its command line in UTF-8.
+target_link_libraries(WildWorldBuild PRIVATE winhttp shell32)
 
 # The Mods page, where Wild World's own options go (game_options.h).
 set(RECOMP_UI_ENABLE_MODS ON)

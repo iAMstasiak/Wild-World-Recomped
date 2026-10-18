@@ -12,12 +12,13 @@
 #include <string>
 #include <vector>
 
+#include "layout.h"
 namespace acww {
 
 // The 32x32 DS menu icon as RGBA (alpha 0 = see-through), or nothing if the
 // file isn't a DS game with a banner.
 inline std::vector<uint8_t> read_banner_icon(const std::string& rom) {
-    std::ifstream file(rom, std::ios::binary);
+    std::ifstream file(std::filesystem::u8path(rom), std::ios::binary);
     uint8_t header[0x6C];
     if (!file.read(reinterpret_cast<char*>(header), sizeof(header))) return {};
     const uint32_t banner = header[0x68] | header[0x69] << 8 | header[0x6A] << 16 |
@@ -79,7 +80,7 @@ struct RomTitle {
 };
 
 inline RomTitle read_banner_title(const std::string& rom) {
-    std::ifstream file(rom, std::ios::binary);
+    std::ifstream file(std::filesystem::u8path(rom), std::ios::binary);
     uint8_t header[0x6C];
     if (!file.read(reinterpret_cast<char*>(header), sizeof(header))) return {};
     const uint32_t banner = header[0x68] | header[0x69] << 8 | header[0x6A] << 16 |
@@ -120,12 +121,12 @@ inline RomTitle read_banner_title(const std::string& rom) {
 inline std::string make_box_art(const std::string& rom) {
     const std::vector<uint8_t> icon = read_banner_icon(rom);
     if (icon.empty()) return "";
-    const char* local = std::getenv("LOCALAPPDATA");
+    const wchar_t* local = _wgetenv(L"LOCALAPPDATA");
     const std::filesystem::path folder = local && local[0]
         ? std::filesystem::path(local) / "Wild World Recomped"
         : std::filesystem::absolute("generated");
     const std::filesystem::path path = folder / "boxart.tga";
-    return write_tga(path, icon, 32, 8) ? path.string() : "";
+    return write_tga(path, icon, 32, 8) ? ascii_path(path).u8string() : "";
 }
 
 }  // namespace acww

@@ -5,6 +5,7 @@
 // goes through a player's first start in generated\setup-test instead.
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -44,10 +45,30 @@ inline std::filesystem::path exe_folder() {
     }
 }
 
+inline bool is_ascii(const std::filesystem::path& p) {
+    const std::wstring& w = p.native();
+    return std::all_of(w.begin(), w.end(), [](wchar_t c) { return c < 128; });
+}
+
+// The same file or folder by a name with only ASCII letters: its short (8.3)
+// name when its own has others, so that programs which read their command
+// line in the ANSI code page (the recompiler, Ninja, the game) can open it.
+// Unchanged when it's ASCII already or Windows has no short name for it.
+inline std::filesystem::path ascii_path(const std::filesystem::path& p) {
+    if (is_ascii(p)) return p;
+    const DWORD n = GetShortPathNameW(p.c_str(), nullptr, 0);
+    if (n == 0) return p;
+    std::wstring out(n, L'\0');
+    const DWORD got = GetShortPathNameW(p.c_str(), out.data(), n);
+    if (got == 0 || got >= n) return p;
+    out.resize(got);
+    return out;
+}
+
 inline Layout find_layout(bool setup_test) {
     namespace fs = std::filesystem;
     Layout l;
-    const fs::path exe = exe_folder();
+    const fs::path exe = ascii_path(exe_folder());
     std::error_code ec;
     if (fs::exists(exe / "kit", ec)) {   // a release: kit\ holds what the build needs
         l.release = l.setup = true;

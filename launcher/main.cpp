@@ -78,7 +78,8 @@ int start_game(const acww::Layout& layout, const std::string& rom) {
     std::strftime(stamp, sizeof(stamp), "run-%Y%m%d-%H%M%S", std::localtime(&now));
     const std::string runner = layout.runner.u8string();
     std::vector<std::string> args = {
-        runner, "bios", "--rom", rom, "--config", "game.toml", "--interactive",
+        runner, "bios", "--rom", acww::ascii_path(std::filesystem::u8path(rom)).u8string(),
+        "--config", "game.toml", "--interactive",
         "--freebios", "--generated-firmware", "--boot", "direct", "--rtc-host",
         "--save-path", "acww.sav", "--firmware-state-path", "bios\\firmware-state.bin"};
     if (layout.setup) {
@@ -169,6 +170,13 @@ int main(int argc, char** argv) {
     // settings.toml, game.toml, the ROM and the save all live in the game's
     // folder (layout.h): on the developer's PC, the project.
     const acww::Layout layout = acww::find_layout(setup_test);
+    if (!acww::is_ascii(layout.root)) {
+        tell("Wild World Recomped can't run from this folder:\n" + layout.root.u8string() +
+             "\n\nIts path has letters the tools that build the game can't read. Move the Wild "
+             "World Recomped folder somewhere whose path has only English letters and numbers, "
+             "such as C:\\Games.");
+        return 1;
+    }
     std::error_code ec;
     std::filesystem::current_path(layout.root, ec);
     if (ec) {

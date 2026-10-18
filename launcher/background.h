@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "layout.h"
 #include "launcher_gl.h"
 
 namespace acww {
@@ -74,13 +75,13 @@ inline Background make_background() {
     std::vector<uint8_t> rgba(pixels, pixels + static_cast<size_t>(w) * h * 4);
     launcher_image_free(pixels);
     lift_off_white(rgba);
-    const char* local = std::getenv("LOCALAPPDATA");
+    const wchar_t* local = _wgetenv(L"LOCALAPPDATA");
     const std::filesystem::path folder = local && local[0]
         ? std::filesystem::path(local) / "Wild World Recomped"
         : std::filesystem::absolute("generated");
     const std::filesystem::path out = folder / "background.tga";
     if (!write_rgba_tga(out, rgba, w, h)) return {};
-    bg.path = out.string();
+    bg.path = ascii_path(out).u8string();
     return bg;
 }
 

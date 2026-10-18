@@ -54,8 +54,13 @@ public:
         } else if (text.rfind("[done]", 0) == 0) {
             s->fraction = pack_ ? kPackEnd : 1.0f;
             s->left = -1.0;
+        } else {
+            tail_.push_back(text);   // what it said last, in case it stops without an [error]
+            if (tail_.size() > 8) tail_.erase(tail_.begin());
         }
     }
+
+    const std::vector<std::string>& tail() const { return tail_; }
 
     // Seconds since the compile started, for the estimate.
     void tick(double compile_seconds, BuildStatus* s) const {
@@ -155,6 +160,7 @@ private:
     double done_weight_ = 0.0;
     int weighted_ = -1;
     float compile_fraction_ = 0.0f;
+    std::vector<std::string> tail_;
 };
 
 #ifdef _WIN32
@@ -234,7 +240,10 @@ private:
             status_.fraction = 1.0f;
         } else {
             status_.state = BuildStatus::kFailed;
-            if (status_.error.empty()) status_.error = "the build stopped without saying why";
+            if (status_.error.empty()) {
+                status_.error = "WildWorldBuild stopped without saying why. The last thing it printed is below";
+                status_.log = progress_.tail();
+            }
         }
         running_ = false;
     }

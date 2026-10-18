@@ -65,6 +65,10 @@
 #include "recompile.h"
 #include "sha1.h"
 
+#ifdef _WIN32
+#include <shellapi.h>
+#endif
+
 namespace fs = std::filesystem;
 using wwbuild::Bytes;
 
@@ -412,6 +416,26 @@ int build(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // Windows hands main() its arguments in the ANSI code page, and a folder
+    // name can have letters that has no room for; everything here takes UTF-8.
+    std::vector<std::string> utf8;
+    std::vector<char*> utf8_argv;
+    int n = 0;
+    if (wchar_t** wide = CommandLineToArgvW(GetCommandLineW(), &n)) {
+        for (int i = 0; i < n; ++i) {
+            const int len = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+            std::string arg(len > 1 ? static_cast<size_t>(len - 1) : 0, '\0');
+            if (len > 1) WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, arg.data(), len, nullptr, nullptr);
+            utf8.push_back(arg);
+        }
+        LocalFree(wide);
+        for (std::string& arg : utf8) utf8_argv.push_back(arg.data());
+        utf8_argv.push_back(nullptr);
+        argc = n;
+        argv = utf8_argv.data();
+    }
+#endif
     const std::string command = argc > 1 ? argv[1] : "";
     if (command == "unpack") return unpack(argc, argv);
     if (command == "plan") return plan(argc, argv);
