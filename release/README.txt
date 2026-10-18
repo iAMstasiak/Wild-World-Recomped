@@ -31,6 +31,14 @@ and restores saves. Settings are in settings.toml, controls in keybinds.ini.
 If setup stops, the launcher says why. The full logs are in build\logs.
 
 
+Updates
+-------
+When a new version is out, the launcher shows an Update button at the top.
+Press it to download the new version. The launcher restarts by itself and
+builds the game again. Your save, settings, controls and backups stay as
+they are.
+
+
 What's in here
 --------------
 WildWorldRecomped.exe   the launcher
