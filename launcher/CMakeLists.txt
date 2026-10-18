@@ -19,6 +19,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(RECOMP_UI_ROOT "C:/acww/recomp-ui" CACHE PATH "The recomp-ui checkout")
 set(ACWW_RUNNER "C:/acww/ndsrecomp/runner/build-acww/nds_runner.exe" CACHE FILEPATH
     "The game (ndsrecomp's runner built for Wild World)")
+# What the launcher's first-run setup builds with when it's tried here
+# (WildWorldRecomped.exe --setup; a release brings its own copies in kit\).
+set(ACWW_NDSRECOMP "C:/acww/ndsrecomp" CACHE PATH "The ndsrecomp checkout")
+set(ACWW_RECOMPILER "${ACWW_NDSRECOMP}/recompiler/build/nds_recompile.exe" CACHE FILEPATH
+    "ndsrecomp's recompiler")
 get_filename_component(ACWW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 # MSYS2's bin folder: the C++ runtime DLLs the launcher needs, and the ones
 # the game needs (main.cpp puts it on PATH before starting the runner, as
@@ -37,7 +42,10 @@ target_compile_definitions(WildWorldRecomped PRIVATE
     ACWW_ROOT="${ACWW_ROOT}"
     ACWW_RUNNER="${ACWW_RUNNER}"
     ACWW_DLL_DIR="${ACWW_DLL_DIR}"
-    ACWW_VERSION="${PROJECT_VERSION}")
+    ACWW_VERSION="${PROJECT_VERSION}"
+    ACWW_NDSRECOMP="${ACWW_NDSRECOMP}"
+    ACWW_RECOMPILER="${ACWW_RECOMPILER}"
+    ACWW_RECOMP_UI="${RECOMP_UI_ROOT}")
 if(TARGET SDL3::SDL3-shared)
     add_custom_command(TARGET WildWorldRecomped POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -68,6 +76,8 @@ add_custom_command(TARGET WildWorldRecomped POST_BUILD
 # A console program the launcher runs; linked statically, so it needs no DLLs.
 add_executable(WildWorldBuild builder/main.cpp)
 target_link_options(WildWorldBuild PRIVATE -static)
+# WinHTTP (part of Windows) downloads the compiler pack (builder/pack.h).
+target_link_libraries(WildWorldBuild PRIVATE winhttp)
 
 # The Mods page, where Wild World's own options go (game_options.h).
 set(RECOMP_UI_ENABLE_MODS ON)

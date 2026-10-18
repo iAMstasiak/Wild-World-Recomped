@@ -2,7 +2,13 @@
 //
 // The launcher runs this on first start (and after an update); it does what
 // prepare_acww.py, make_banks.py and the runner build do on the developer's
-// PC, with no Python. The launcher runs the whole thing:
+// PC, with no Python. The launcher runs it twice:
+//
+//   WildWorldBuild pack --pack DIR [--from DIR] [--force]
+//
+// downloads the compiler pack (w64devkit and SDL3, from their own releases,
+// or from --from when the files are already there), checks each file's
+// SHA-256 and unpacks it into --pack; it does nothing if it's already there.
 //
 //   WildWorldBuild build --rom acww.nds --seeds DIR --recompiler EXE
 //       --ndsrecomp DIR --recomp-ui DIR --pack DIR --work DIR --out DIR [--jobs N]
@@ -54,6 +60,7 @@
 #include "build_runner.h"
 #include "files.h"
 #include "nds_rom.h"
+#include "pack.h"
 #include "plan.h"
 #include "recompile.h"
 #include "sha1.h"
@@ -86,6 +93,12 @@ std::string arg_value(int argc, char** argv, const std::string& name) {
     for (int i = 2; i + 1 < argc; ++i)
         if (argv[i] == name) return argv[i + 1];
     return "";
+}
+
+bool has_flag(int argc, char** argv, const std::string& name) {
+    for (int i = 2; i < argc; ++i)
+        if (argv[i] == name) return true;
+    return false;
 }
 
 // The player's ROM, checked and unpacked; false (and a message) if it isn't
@@ -311,6 +324,42 @@ int compile(int argc, char** argv) {
     return compile_game(o, std::chrono::steady_clock::now());
 }
 
+// About what the pack takes once unpacked, with its downloads.
+constexpr uintmax_t kPackSpaceNeeded = 1ull << 30;
+
+int pack(int argc, char** argv) {
+    const fs::path dir = full_path(argc, argv, "--pack");
+    const fs::path from = full_path(argc, argv, "--from");
+    if (dir.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild pack --pack DIR [--from DIR] [--force]\n");
+        return 2;
+    }
+    if (wwbuild::pack_ready(dir) && !has_flag(argc, argv, "--force")) {
+        std::printf("the compiler pack (%s) is already in %s\n[done] %s\n", wwbuild::kPackVersion,
+                    dir.u8string().c_str(), dir.u8string().c_str());
+        return 0;
+    }
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::space_info space = fs::space(dir, ec);
+    if (!ec && space.available < kPackSpaceNeeded) {
+        std::fprintf(stderr, "[error] the compiler pack needs about 1 GB free on the drive with %s, "
+                             "and there's %.1f GB\n",
+                     dir.u8string().c_str(), static_cast<double>(space.available) / (1 << 30));
+        return 1;
+    }
+    const auto started = std::chrono::steady_clock::now();
+    std::string error;
+    if (!wwbuild::get_pack(dir, from, &error)) {
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    std::printf("the compiler pack (%s) is ready, in %.0f s\n[done] %s\n", wwbuild::kPackVersion, seconds,
+                dir.u8string().c_str());
+    return 0;
+}
+
 // About what a build takes: the C, the compiled code and a second copy of
 // the C while a rebuild swaps it in.
 constexpr uintmax_t kSpaceNeeded = 4ull << 30;
@@ -368,9 +417,11 @@ int main(int argc, char** argv) {
     if (command == "plan") return plan(argc, argv);
     if (command == "recompile") return recompile(argc, argv);
     if (command == "compile") return compile(argc, argv);
+    if (command == "pack") return pack(argc, argv);
     if (command == "build") return build(argc, argv);
     std::fprintf(stderr,
                  "WildWorldBuild: builds Wild World Recomped from your own ROM.\n"
+                 "  WildWorldBuild pack --pack DIR [--from DIR] [--force]\n"
                  "  WildWorldBuild build --rom acww.nds --seeds DIR --recompiler EXE --ndsrecomp DIR\n"
                  "      --recomp-ui DIR --pack DIR --work DIR --out DIR [--jobs N]\n"
                  "  WildWorldBuild unpack --rom acww.nds --out DIR [--compare DIR]\n"

@@ -6,6 +6,10 @@
 // console: what the game prints goes to generated\logs\last-run.log. With
 // "Skip launcher on boot" ticked it goes straight to the game; hold Shift
 // while it starts (or run it with --launcher) to get the window back.
+//
+// A player's copy builds the game on its first start: until then the window
+// shows the setup page (setup_page.h) instead of the dashboard. On the
+// developer's PC, --setup goes through that in generated\setup-test.
 
 #include <algorithm>
 #include <cstdint>
@@ -24,7 +28,9 @@
 #include "recomp_launcher.h"
 #include "rom_art.h"
 #include "settings_file.h"
+#include "layout.h"
 #include "saves_page.h"
+#include "setup_page.h"
 #include "town.h"
 
 #ifndef NOMINMAX   // MinGW's C++ library already defines it
@@ -66,46 +72,46 @@ void tell(const std::string& message) {
     MessageBoxA(nullptr, message.c_str(), "Wild World Recomped", MB_OK | MB_ICONWARNING);
 }
 
-// The game's command line is one string, so arguments with a space in them
-// (a ROM in "OneDrive\Documents\...") need quotes.
-std::string quoted(const std::string& arg) {
-    if (!arg.empty() && arg.find_first_of(" \t\"") == std::string::npos) return arg;
-    std::string out = "\"";
-    for (char c : arg) {
-        if (c == '"') out += '\\';
-        out += c;
-    }
-    return out + "\"";
-}
-
-int start_game(const std::string& rom) {
+int start_game(const acww::Layout& layout, const std::string& rom) {
     char stamp[32];
     const std::time_t now = std::time(nullptr);
     std::strftime(stamp, sizeof(stamp), "run-%Y%m%d-%H%M%S", std::localtime(&now));
-    const std::vector<std::string> args = {
-        ACWW_RUNNER, "bios", "--rom", rom, "--config", "game.toml", "--interactive",
+    const std::string runner = layout.runner.u8string();
+    std::vector<std::string> args = {
+        runner, "bios", "--rom", rom, "--config", "game.toml", "--interactive",
         "--freebios", "--generated-firmware", "--boot", "direct", "--rtc-host",
-        "--save-path", "acww.sav", "--firmware-state-path", "bios\\firmware-state.bin",
-        "--diagnostics-dir", "generated\\diagnostics",
-        "--coverage-manifest", std::string("generated\\coverage\\") + stamp + ".json"};
-    std::string command;
-    for (const std::string& arg : args) command += (command.empty() ? "" : " ") + quoted(arg);
-
-    // The runner needs MSYS2's DLLs (SDL3, the C++ runtime). play.ps1 puts
-    // them on PATH; a shortcut doesn't, so do the same here.
-    std::string dlls = ACWW_DLL_DIR;
-    std::replace(dlls.begin(), dlls.end(), '/', '\\');
-    const char* path = std::getenv("PATH");
-    SetEnvironmentVariableA("PATH", (dlls + ";" + (path ? path : "")).c_str());
+        "--save-path", "acww.sav", "--firmware-state-path", "bios\\firmware-state.bin"};
+    if (layout.setup) {
+        // A game built by setup: none of the developer's diagnostics or coverage.
+        args.insert(args.end(), {"--diagnostics", "off", "--no-coverage-manifest"});
+    } else {
+        args.insert(args.end(), {"--diagnostics-dir", "generated\\diagnostics", "--coverage-manifest",
+                                 std::string("generated\\coverage\\") + stamp + ".json"});
+        // This runner needs MSYS2's DLLs (SDL3, the C++ runtime). play.ps1 puts
+        // them on PATH; a shortcut doesn't, so do the same here. (A game built
+        // by setup has SDL3.dll beside it.)
+        std::string dlls = ACWW_DLL_DIR;
+        std::replace(dlls.begin(), dlls.end(), '/', '\\');
+        const char* path = std::getenv("PATH");
+        SetEnvironmentVariableA("PATH", (dlls + ";" + (path ? path : "")).c_str());
+    }
+    // One command line, each argument quoted the way the game will read it
+    // back (a ROM in "OneDrive\Documents\..." has spaces).
+    std::wstring command;
+    for (const std::string& arg : args)
+        command += (command.empty() ? L"" : L" ") + wwbuild::quote_arg(wwbuild::widen(arg));
 
     // What the game prints goes to the log instead of a console window.
+    const std::filesystem::path logs = layout.release ? "logs" : "generated\\logs";
+    const std::string log_path = (logs / "last-run.log").u8string();
     std::error_code ec;
-    std::filesystem::create_directories("generated\\logs", ec);
+    std::filesystem::create_directories(logs, ec);
+    std::filesystem::create_directories("bios", ec);   // where the game keeps its DS settings
     SECURITY_ATTRIBUTES inherit{sizeof(inherit), nullptr, TRUE};
-    HANDLE log_file = CreateFileA("generated\\logs\\last-run.log", GENERIC_WRITE,
+    HANDLE log_file = CreateFileW((logs / "last-run.log").c_str(), GENERIC_WRITE,
                                   FILE_SHARE_READ, &inherit, CREATE_ALWAYS,
                                   FILE_ATTRIBUTE_NORMAL, nullptr);
-    STARTUPINFOA startup{};
+    STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     if (log_file != INVALID_HANDLE_VALUE) {
         startup.dwFlags = STARTF_USESTDHANDLES;
@@ -113,15 +119,14 @@ int start_game(const std::string& rom) {
         startup.hStdError = log_file;
     }
     PROCESS_INFORMATION game{};
-    std::vector<char> line(command.begin(), command.end());
-    line.push_back('\0');
-    const BOOL started = CreateProcessA(ACWW_RUNNER, line.data(), nullptr, nullptr, TRUE,
+    std::vector<wchar_t> line(command.begin(), command.end());
+    line.push_back(L'\0');
+    const BOOL started = CreateProcessW(layout.runner.c_str(), line.data(), nullptr, nullptr, TRUE,
                                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &game);
     const DWORD why = GetLastError();
     if (log_file != INVALID_HANDLE_VALUE) CloseHandle(log_file);
     if (!started) {
-        tell("The game couldn't start (Windows error " + std::to_string(why) + "):\n" +
-             ACWW_RUNNER);
+        tell("The game couldn't start (Windows error " + std::to_string(why) + "):\n" + runner);
         return 1;
     }
     WaitForSingleObject(game.hProcess, INFINITE);
@@ -132,8 +137,8 @@ int start_game(const std::string& rom) {
     if (code != 0) {
         char hex[16];
         std::snprintf(hex, sizeof(hex), "0x%08lX", static_cast<unsigned long>(code));
-        tell(std::string("The game stopped with an error (") + hex + "). What it printed is in "
-             "generated\\logs\\last-run.log.");
+        tell(std::string("The game stopped with an error (") + hex + "). What it printed is in " +
+             log_path + ".");
     }
     return static_cast<int>(code);
 }
@@ -155,21 +160,28 @@ std::vector<acww::ModFile> read_mods() {
 }  // namespace
 
 int main(int argc, char** argv) {
-    // settings.toml, game.toml, the ROM and the save all live in the project.
+    bool force_window = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool setup_test = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--launcher") == 0) force_window = true;
+        if (std::strcmp(argv[i], "--setup") == 0) setup_test = true;
+    }
+    // settings.toml, game.toml, the ROM and the save all live in the game's
+    // folder (layout.h): on the developer's PC, the project.
+    const acww::Layout layout = acww::find_layout(setup_test);
     std::error_code ec;
-    std::filesystem::current_path(ACWW_ROOT, ec);
+    std::filesystem::current_path(layout.root, ec);
     if (ec) {
-        tell(std::string("Can't open the game's folder:\n") + ACWW_ROOT);
+        tell("Can't open the game's folder:\n" + layout.root.u8string());
         return 1;
     }
-    bool force_window = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    for (int i = 1; i < argc; ++i)
-        if (std::strcmp(argv[i], "--launcher") == 0) force_window = true;
+    acww::setup::init(layout, ACWW_VERSION);
+    if (acww::setup::needed()) force_window = true;   // the game has to be built first
 
     acww::SettingsFile file;
     file.load("settings.toml");
     if (file.get_bool("launcher", "skip", false) && !force_window)
-        return start_game(file.get("launcher", "rom", "acww.nds"));
+        return start_game(layout, file.get("launcher", "rom", "acww.nds"));
 
     acww::GameOptions options;
     options.load(file, read_mods());
@@ -251,6 +263,10 @@ int main(int argc, char** argv) {
     }
     acww::set_town_card(acww::saves::kSave);   // the Save Info card, from the save itself
     acww_saves_page = acww::saves::draw;        // the Saves page (saves_page.h)
+    if (layout.setup) {                          // the setup page, until the game is built
+        acww_setup_needed = acww::setup::needed;
+        acww_setup_page = acww::setup::draw;
+    }
     const acww::Background background = acww::make_background();
     if (!background.path.empty()) {
         _putenv(("ACWW_LAUNCHER_BACKGROUND=" + background.path).c_str());
@@ -282,5 +298,9 @@ int main(int argc, char** argv) {
         tell("Your settings couldn't be saved to settings.toml.");
 
     if (result == RECOMP_LAUNCHER_RESULT_QUIT) return 0;
-    return start_game(chosen);   // also when the window couldn't open at all
+    if (acww::setup::needed()) {
+        tell("The game hasn't been built yet. Open the launcher again and press Set Up.");
+        return 1;
+    }
+    return start_game(layout, chosen);   // also when the window couldn't open at all
 }

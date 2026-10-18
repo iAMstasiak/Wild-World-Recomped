@@ -28,7 +28,10 @@ heading, ACWW_LAUNCHER_TOWN_1, _2, ... for "Label<tab>Value" rows or lines).
 The host can draw a page of its own (Wild World's Saves page): when it sets
 acww_saves_page, the dashboard gets a Saves button and that page is drawn in
 place of the Assist Tools view, which Wild World doesn't use. acww_ui_* give
-the page the launcher's cards, headings and colours.
+the page the launcher's cards, headings and colours. Until the game is built,
+acww_setup_needed says so and acww_setup_page (the player's first-run setup)
+is drawn in place of the dashboard, with Play off; acww_ui_rom and
+acww_ui_set_rom let it use the ROM the launcher checks.
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -361,6 +364,51 @@ EDITS = [
      "\n"
      "// ---- launcher_panels.h contract implementation",
      "ImVec4 acww_ui_color(int which)"),
+    (IMGUI,
+     "void (*acww_saves_page)() = nullptr;\n",
+     "void (*acww_saves_page)() = nullptr;\n"
+     "\n"
+     "// acwwrecomp: the first-run setup page the host draws in place of the\n"
+     "// dashboard, with Play off, until the game is built (launcher/setup_page.h).\n"
+     "bool (*acww_setup_needed)() = nullptr;\n"
+     "void (*acww_setup_page)() = nullptr;\n"
+     "static LauncherModel* g_acww_model = nullptr;   // the model that page's ROM is in\n"
+     "static bool acww_setup_shown() { return acww_setup_needed && acww_setup_page && acww_setup_needed(); }\n",
+     "bool (*acww_setup_needed)() = nullptr;"),
+    (IMGUI,
+     "        case LNG_VIEW_DASHBOARD:  draw_dashboard(m, th, logical_w); break;\n",
+     "        case LNG_VIEW_DASHBOARD:   // acwwrecomp: or the first-run setup page\n"
+     "            g_acww_model = m;\n"
+     "            if (acww_setup_shown()) acww_setup_page(); else draw_dashboard(m, th, logical_w);\n"
+     "            break;\n",
+     "if (acww_setup_shown()) acww_setup_page();"),
+    (IMGUI,
+     "    const bool can_play = launcher_model_can_launch(m);\n",
+     "    const bool can_play = launcher_model_can_launch(m) && !acww_setup_shown();   // acwwrecomp\n",
+     "launcher_model_can_launch(m) && !acww_setup_shown()"),
+    (IMGUI,
+     "        const char* noun = m->rom_noun ? m->rom_noun : \"ROM\";\n"
+     "        if (m->bios_name && launcher_model_bios_missing(m)) {\n",
+     "        const char* noun = m->rom_noun ? m->rom_noun : \"ROM\";\n"
+     "        if (acww_setup_shown()) {   // acwwrecomp\n"
+     "            ImGui::SetTooltip(\"Set up the game first\");\n"
+     "        } else if (m->bios_name && launcher_model_bios_missing(m)) {\n",
+     "ImGui::SetTooltip(\"Set up the game first\");"),
+    (IMGUI,
+     "void acww_ui_heading(const char* text) { eyebrow(text); }\n",
+     "void acww_ui_heading(const char* text) { eyebrow(text); }\n"
+     "// The ROM the launcher has (\"\" for none), whether it checked out as the\n"
+     "// supported dump, and choosing another (checked the same way).\n"
+     "const char* acww_ui_rom() {\n"
+     "    return g_acww_model && g_acww_model->rom_present ? g_acww_model->rom_full : \"\";\n"
+     "}\n"
+     "bool acww_ui_rom_ok() {\n"
+     "    return g_acww_model && g_acww_model->rom_present && launcher_model_rom_verified(g_acww_model);\n"
+     "}\n"
+     "void acww_ui_set_rom(const char* path) {\n"
+     "    if (g_acww_model) launcher_model_set_rom(g_acww_model, path);\n"
+     "}\n",
+     "void acww_ui_set_rom(const char* path)"),
 ]
 
 
