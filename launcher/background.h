@@ -1,7 +1,7 @@
 // The launcher's background (launcher).
 //
-// A pattern of little icons on white, made by a fan artist and used with
-// their permission (launcher/assets/background.jpg; credited on the Credits
+// A pattern of little icons on white by usrkitt, a fan artist
+// (launcher/assets/background.jpg; credited on the Credits
 // page). Its white paper is lifted off so only the icons are left, the result
 // is written beside the box art in %LOCALAPPDATA%\Wild World Recomped, and
 // recomp-ui draws it faintly over the dark ground, scaled to cover the window

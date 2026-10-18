@@ -61,8 +61,7 @@ const char* const kCredits =
     "Built on ndsrecomp (static recompilation for the Nintendo DS), the melonDS "
     "device models, recomp-ui (this launcher) and Dear ImGui. The launcher's font "
     "is Nunito by the Nunito Project Authors (SIL Open Font License). The background "
-    "pattern is by usrkitt (alphacoders.com/users/profile/247170/usrkitt), used with "
-    "permission.\n"
+    "pattern is by usrkitt (alphacoders.com/users/profile/247170/usrkitt).\n"
     "\n"
     "Animal Crossing is a trademark of Nintendo. This project is not affiliated "
     "with or endorsed by Nintendo.";
