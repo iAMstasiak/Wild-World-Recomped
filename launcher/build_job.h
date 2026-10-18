@@ -62,9 +62,11 @@ public:
 
     const std::vector<std::string>& tail() const { return tail_; }
 
-    // Seconds since the compile started, for the estimate.
+    // Seconds since the compile started, for the estimate. The small files
+    // finish first, so it waits for a quarter of the compile: a guess before
+    // the big ones are done comes out far too long.
     void tick(double compile_seconds, BuildStatus* s) const {
-        if (step_ != "compile" || compile_fraction_ < 0.03f || compile_seconds < 20.0) return;
+        if (step_ != "compile" || compile_fraction_ < 0.25f || compile_seconds < 60.0) return;
         s->left = compile_seconds * (1.0 - compile_fraction_) / compile_fraction_;
     }
 

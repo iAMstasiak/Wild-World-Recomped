@@ -8,6 +8,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -20,6 +21,7 @@
 #include "imgui.h"
 #include "launcher_files.h"
 #include "layout.h"
+#include "rom_art.h"
 
 // From recomp-ui, as patched by tools/patch_recompui.py.
 extern bool (*acww_setup_needed)();
@@ -31,6 +33,7 @@ ImVec4 acww_ui_color(int which);   // 0 text, 1 muted, 2 good, 3 warning, 4 head
 const char* acww_ui_rom();
 bool acww_ui_rom_ok();
 void acww_ui_set_rom(const char* path);
+void acww_ui_set_boxart(const char* path);
 
 namespace acww {
 namespace setup {
@@ -107,6 +110,22 @@ inline void choose_rom() {
     acww_ui_set_rom(path);
     p.rom_problem = acww_ui_rom_ok() ? "" : "That isn't Animal Crossing: Wild World (USA, revision 1), the "
                                             "version this is made for.";
+}
+
+// The ROM's box art, name and publisher, which the launcher reads when it
+// opens: setup may have been given a ROM the launcher hadn't seen then.
+inline void show_rom_art(const std::string& rom) {
+    const std::string box_art = make_box_art(rom);
+    if (!box_art.empty()) {
+        _putenv(("ACWW_LAUNCHER_BRAND=" + box_art).c_str());
+        acww_ui_set_boxart(box_art.c_str());
+    }
+    const RomTitle title = read_banner_title(rom);
+    if (!title.name.empty()) {
+        _putenv(("ACWW_LAUNCHER_GAME_TITLE=" + title.name).c_str());
+        const std::string detail = title.publisher.empty() ? "USA" : title.publisher + "  \u00B7  USA";
+        _putenv(("ACWW_LAUNCHER_GAME_DETAIL=" + detail).c_str());
+    }
 }
 
 inline void open_folder(const fs::path& folder) {
@@ -207,6 +226,7 @@ inline void draw() {
         std::ofstream file(p.layout.game / "built.txt", std::ios::trunc);
         file << p.version << "\n";
         p.built = true;   // the dashboard comes back next frame
+        show_rom_art(acww_ui_rom());
     }
     const bool rom_ok = acww_ui_rom_ok();
     std::error_code ec;

@@ -31,7 +31,8 @@ place of the Assist Tools view, which Wild World doesn't use. acww_ui_* give
 the page the launcher's cards, headings and colours. Until the game is built,
 acww_setup_needed says so and acww_setup_page (the player's first-run setup)
 is drawn in place of the dashboard, with Play off; acww_ui_rom and
-acww_ui_set_rom let it use the ROM the launcher checks.
+acww_ui_set_rom let it use the ROM the launcher checks, and
+acww_ui_set_boxart shows that ROM's box art once the game is built.
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -409,6 +410,22 @@ EDITS = [
      "    if (g_acww_model) launcher_model_set_rom(g_acww_model, path);\n"
      "}\n",
      "void acww_ui_set_rom(const char* path)"),
+    (IMGUI,
+     "void acww_ui_set_rom(const char* path) {\n"
+     "    if (g_acww_model) launcher_model_set_rom(g_acww_model, path);\n"
+     "}\n",
+     "void acww_ui_set_rom(const char* path) {\n"
+     "    if (g_acww_model) launcher_model_set_rom(g_acww_model, path);\n"
+     "}\n"
+     "// New box art, and the leaf in the corner (the same picture): the launcher\n"
+     "// loads them when it opens, before setup had the ROM they come from.\n"
+     "void acww_ui_set_boxart(const char* path) {\n"
+     "    launcher_texture_free(&g_boxart);\n"
+     "    g_boxart = launcher_texture_load(path);\n"
+     "    launcher_texture_free(&g_brand);\n"
+     "    g_brand = launcher_texture_load(path);\n"
+     "}\n",
+     "void acww_ui_set_boxart(const char* path)"),
 ]
 
 
