@@ -160,11 +160,14 @@ inline bool build_runner(const BuildOptions& o, std::string* error, std::vector<
     const fs::path build = o.work / "runner", logs = o.work / "logs";
     fs::create_directories(logs, ec);
     const fs::path sdl3 = find_sdl3_config(o.pack / "SDL3");
-    const fs::path cmake = find_tool(o.pack / "cmake", std::string("cmake") + kExe);
+    // w64devkit comes with CMake and Ninja; separate cmake and ninja folders are a fallback.
     const fs::path gcc = find_tool(o.pack / "w64devkit", std::string("gcc") + kExe);
-    const fs::path ninja = find_tool(o.pack / "ninja", std::string("ninja") + kExe);
-    const char* missing = cmake.empty() ? "CMake (in cmake)" : gcc.empty() ? "GCC (in w64devkit)"
-                        : ninja.empty() ? "Ninja (in ninja)" : nullptr;
+    fs::path cmake = find_tool(o.pack / "w64devkit", std::string("cmake") + kExe);
+    if (cmake.empty()) cmake = find_tool(o.pack / "cmake", std::string("cmake") + kExe);
+    fs::path ninja = find_tool(o.pack / "w64devkit", std::string("ninja") + kExe);
+    if (ninja.empty()) ninja = find_tool(o.pack / "ninja", std::string("ninja") + kExe);
+    const char* missing = gcc.empty() ? "GCC (in w64devkit)" : cmake.empty() ? "CMake"
+                        : ninja.empty() ? "Ninja" : nullptr;
     if (missing) {
         *error = "the compiler pack in " + o.pack.u8string() + " has no " + missing;
         return false;
