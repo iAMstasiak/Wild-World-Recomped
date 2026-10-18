@@ -50,10 +50,11 @@ inline bool pack_ready(const std::filesystem::path& pack) {
 }
 
 #ifdef _WIN32
-// Downloads url into path, calling on_bytes with the total so far. False and
-// *error when it fails.
-inline bool download(const std::string& url, const std::filesystem::path& path,
-                     const std::function<void(uint64_t)>& on_bytes, std::string* error) {
+// Gets url, handing what arrives to on_data and the total so far to
+// on_bytes. False and *error when it fails; *status is the HTTP status.
+inline bool http_get(const std::string& url, const std::function<bool(const char*, size_t)>& on_data,
+                     const std::function<void(uint64_t)>& on_bytes, std::string* error,
+                     unsigned long* status_out = nullptr) {
     struct Handle {
         HINTERNET h = nullptr;
         ~Handle() { if (h) WinHttpCloseHandle(h); }
@@ -91,11 +92,11 @@ inline bool download(const std::string& url, const std::filesystem::path& path,
     DWORD status = 0, size = sizeof(status);
     WinHttpQueryHeaders(request.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                         WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX);
+    if (status_out) *status_out = status;
     if (status != 200) {
         *error = "the download of " + url + " was refused (HTTP " + std::to_string(status) + ")";
         return false;
     }
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
     std::vector<char> buffer(1 << 16);
     uint64_t got = 0;
     for (;;) {
@@ -106,10 +107,25 @@ inline bool download(const std::string& url, const std::filesystem::path& path,
             return false;
         }
         if (n == 0) break;
-        out.write(buffer.data(), n);
+        if (!on_data(buffer.data(), n)) {
+            *error = "can't keep what was downloaded from " + url;
+            return false;
+        }
         got += n;
         on_bytes(got);
     }
+    return true;
+}
+
+// Downloads url into path.
+inline bool download(const std::string& url, const std::filesystem::path& path,
+                     const std::function<void(uint64_t)>& on_bytes, std::string* error) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    const auto keep = [&](const char* data, size_t n) {
+        out.write(data, static_cast<std::streamsize>(n));
+        return static_cast<bool>(out);
+    };
+    if (!http_get(url, keep, on_bytes, error)) return false;
     if (!out) {
         *error = "can't write " + path.u8string();
         return false;

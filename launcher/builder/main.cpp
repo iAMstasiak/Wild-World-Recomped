@@ -19,6 +19,23 @@
 // install", "[progress] N/M what", "[error] message" (on stderr, after any
 // "[log] line" from the log) and "[done] path to the game".
 //
+// And for updates:
+//
+//   WildWorldBuild latest --repo OWNER/NAME
+//
+// prints "[latest] VERSION ZIP-URL SIZE" for the newest GitHub release, or
+// "[latest] none";
+//
+//   WildWorldBuild fetch --url URL --out FILE [--size BYTES]
+//
+// downloads it, with "[progress] N/M MB"; and
+//
+//   WildWorldBuild apply-update --zip FILE --into DIR [--wait PID] [--restart]
+//
+// waits for the launcher (process PID) to close, puts the release in place
+// of the program files in DIR and starts the launcher again. The launcher
+// runs a copy of this program for that, since this one is replaced.
+//
 // Each step can also be run on its own, to check it against the developer's
 // pipeline:
 //
@@ -64,6 +81,7 @@
 #include "plan.h"
 #include "recompile.h"
 #include "sha1.h"
+#include "update.h"
 
 #ifdef _WIN32
 #include <shellapi.h>
@@ -413,6 +431,134 @@ int build(int argc, char** argv) {
     return compile_game(o, started);
 }
 
+int latest(int argc, char** argv) {
+    const std::string repo = arg_value(argc, argv, "--repo");
+    if (repo.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild latest --repo OWNER/NAME\n");
+        return 2;
+    }
+#ifdef _WIN32
+    std::string body, error;
+    unsigned long status = 0;
+    const auto keep = [&](const char* data, size_t n) {
+        body.append(data, n);
+        return body.size() < (8u << 20);
+    };
+    if (!wwbuild::http_get("https://api.github.com/repos/" + repo + "/releases/latest", keep,
+                           [](uint64_t) {}, &error, &status)) {
+        if (status == 404) {   // no release yet
+            std::printf("[latest] none\n");
+            return 0;
+        }
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    const wwbuild::Release r = wwbuild::parse_latest(body);
+    if (r.version.empty()) std::printf("[latest] none\n");
+    else std::printf("[latest] %s %s %llu\n", r.version.c_str(), r.url.c_str(),
+                     static_cast<unsigned long long>(r.size));
+    return 0;
+#else
+    std::fprintf(stderr, "[error] checking for updates only works on Windows\n");
+    return 1;
+#endif
+}
+
+int fetch(int argc, char** argv) {
+    const std::string url = arg_value(argc, argv, "--url");
+    const fs::path out = full_path(argc, argv, "--out");
+    if (url.empty() || out.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild fetch --url URL --out FILE [--size BYTES]\n");
+        return 2;
+    }
+#ifdef _WIN32
+    const uint64_t size = std::strtoull(arg_value(argc, argv, "--size").c_str(), nullptr, 10);
+    std::error_code ec;
+    fs::create_directories(out.parent_path(), ec);
+    std::printf("[step] download\n");
+    std::fflush(stdout);
+    const int total_mb = static_cast<int>((size + (1 << 20) - 1) >> 20);
+    int last = -1;
+    const auto show = [&](uint64_t got) {
+        const int mb = static_cast<int>(got >> 20);
+        if (total_mb == 0 || mb == last) return;
+        last = mb;
+        std::printf("[progress] %d/%d MB\n", std::min(mb, total_mb), total_mb);
+        std::fflush(stdout);
+    };
+    fs::path part = out;
+    part += ".part";
+    std::string error;
+    if (!wwbuild::download(url, part, show, &error)) {
+        std::fprintf(stderr, "[error] %s\n", error.c_str());
+        return 1;
+    }
+    fs::remove(out, ec);
+    fs::rename(part, out, ec);
+    std::printf("[done] %s\n", out.u8string().c_str());
+    return 0;
+#else
+    std::fprintf(stderr, "[error] downloading updates only works on Windows\n");
+    return 1;
+#endif
+}
+
+int apply_update(int argc, char** argv) {
+    const fs::path zip = full_path(argc, argv, "--zip");
+    const fs::path into = full_path(argc, argv, "--into");
+    if (zip.empty() || into.empty()) {
+        std::fprintf(stderr, "usage: WildWorldBuild apply-update --zip FILE --into DIR [--wait PID] "
+                             "[--restart]\n");
+        return 2;
+    }
+#ifdef _WIN32
+    const unsigned long pid = std::strtoul(arg_value(argc, argv, "--wait").c_str(), nullptr, 10);
+    if (pid) wwbuild::wait_for_process(pid);
+    std::error_code ec;
+    const fs::path unpacked = into / "update" / "new";
+    fs::remove_all(unpacked, ec);
+    fs::create_directories(unpacked, ec);
+    wchar_t windows[MAX_PATH] = L"C:\\Windows";
+    GetSystemWindowsDirectoryW(windows, MAX_PATH);
+    const fs::path tar = fs::path(windows) / "System32" / "tar.exe";
+    std::string error;
+    if (wwbuild::run_process({tar.u8string(), "-xf", zip.u8string(), "-C", unpacked.u8string()},
+                             (into / "update" / "unpack.log").u8string()) != 0) {
+        error = "the download couldn't be unpacked";
+    } else {
+        // The zip holds one folder, "Wild World Recomped 0.2", with the release in it.
+        fs::path top = unpacked;
+        for (const auto& item : fs::directory_iterator(unpacked, ec))
+            if (fs::exists(item.path() / "WildWorldRecomped.exe", ec)) top = item.path();
+        if (!fs::exists(top / "WildWorldRecomped.exe", ec) || !fs::exists(top / "kit", ec))
+            error = "the download isn't a Wild World Recomped release";
+        else
+            wwbuild::apply_release(top, into, &error);
+    }
+    fs::remove_all(unpacked, ec);
+    if (error.empty()) fs::remove(zip, ec);
+    else
+        MessageBoxW(nullptr, wwbuild::widen("Wild World Recomped couldn't update: " + error + ".").c_str(),
+                    L"Wild World Recomped", MB_OK | MB_ICONWARNING);
+    if (has_flag(argc, argv, "--restart")) {
+        std::wstring command = wwbuild::quote_arg((into / "WildWorldRecomped.exe").wstring());
+        std::vector<wchar_t> line(command.begin(), command.end());
+        line.push_back(L'\0');
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE, 0, nullptr, into.c_str(), &si, &pi)) {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
+    return error.empty() ? 0 : 1;
+#else
+    std::fprintf(stderr, "[error] updating only works on Windows\n");
+    return 1;
+#endif
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -443,6 +589,9 @@ int main(int argc, char** argv) {
     if (command == "compile") return compile(argc, argv);
     if (command == "pack") return pack(argc, argv);
     if (command == "build") return build(argc, argv);
+    if (command == "latest") return latest(argc, argv);
+    if (command == "fetch") return fetch(argc, argv);
+    if (command == "apply-update") return apply_update(argc, argv);
     std::fprintf(stderr,
                  "WildWorldBuild: builds Wild World Recomped from your own ROM.\n"
                  "  WildWorldBuild pack --pack DIR [--from DIR] [--force]\n"
@@ -453,6 +602,9 @@ int main(int argc, char** argv) {
                  "  WildWorldBuild recompile --rom acww.nds --seeds DIR --recompiler EXE --work DIR\n"
                  "      [--ndsrecomp DIR] [--jobs N] [--compare DIR]\n"
                  "  WildWorldBuild compile --ndsrecomp DIR --recomp-ui DIR --pack DIR --work DIR\n"
-                 "      --out DIR [--jobs N]\n");
+                 "      --out DIR [--jobs N]\n"
+                 "  WildWorldBuild latest --repo OWNER/NAME\n"
+                 "  WildWorldBuild fetch --url URL --out FILE [--size BYTES]\n"
+                 "  WildWorldBuild apply-update --zip FILE --into DIR [--wait PID] [--restart]\n");
     return 2;
 }

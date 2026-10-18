@@ -32,6 +32,7 @@
 #include "saves_page.h"
 #include "setup_page.h"
 #include "town.h"
+#include "updater.h"
 
 #ifndef NOMINMAX   // MinGW's C++ library already defines it
 #define NOMINMAX
@@ -273,6 +274,10 @@ int main(int argc, char** argv) {
     if (layout.setup) {                          // the setup page, until the game is built
         acww_setup_needed = acww::setup::needed;
         acww_setup_page = acww::setup::draw;
+    }
+    if (layout.release) {                        // a player's copy looks for a newer release
+        acww::update::start_check(layout, ACWW_VERSION);
+        acww_header_extra = acww::update::draw_header;
     }
     const acww::Background background = acww::make_background();
     if (!background.path.empty()) {

@@ -32,7 +32,9 @@ the page the launcher's cards, headings and colours. Until the game is built,
 acww_setup_needed says so and acww_setup_page (the player's first-run setup)
 is drawn in place of the dashboard, with Play off; acww_ui_rom and
 acww_ui_set_rom let it use the ROM the launcher checks, and
-acww_ui_set_boxart shows that ROM's box art once the game is built.
+acww_ui_set_boxart shows that ROM's box art once the game is built. The
+host can also draw in the header, left of its buttons (acww_header_extra:
+Wild World's Update button).
 
 Safe to run again: edits already there are skipped. Run it again after
 updating recomp-ui (git pull), then rebuild the launcher:
@@ -426,6 +428,21 @@ EDITS = [
      "    g_brand = launcher_texture_load(path);\n"
      "}\n",
      "void acww_ui_set_boxart(const char* path)"),
+    (IMGUI,
+     "void (*acww_setup_page)() = nullptr;\n",
+     "void (*acww_setup_page)() = nullptr;\n"
+     "// acwwrecomp: something the host draws in the header, left of its buttons\n"
+     "// and ending at right (Wild World's Update button, launcher/updater.h).\n"
+     "void (*acww_header_extra)(float right, float y, float height) = nullptr;\n",
+     "void (*acww_header_extra)(float right, float y, float height) = nullptr;"),
+    (IMGUI,
+     "            const float total = w * count + gap * (count - 1);\n"
+     "            ImGui::SetCursorPos(ImVec2(right - total, y));\n",
+     "            const float total = w * count + gap * (count - 1);\n"
+     "            if (acww_header_extra)   // acwwrecomp: Wild World's Update button\n"
+     "                acww_header_extra(right - total - gap, y, px(34));\n"
+     "            ImGui::SetCursorPos(ImVec2(right - total, y));\n",
+     "acww_header_extra(right - total - gap, y, px(34));"),
 ]
 
 
