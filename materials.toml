@@ -1,0 +1,28 @@
+# Wild World Recomped material tags, written by the texture picker
+# (play.ps1 -Pick). [look] says how the effects look: change a number
+# and press R in the game to see it. The other lines are the game's
+# textures, by a hash of their texels, with their size and format.
+
+[look]
+ripples = 1.5   # how tall the ripples are
+shading = 1   # how much the ripples light and shade the water
+size = 3   # ripple size: 2 is twice as big
+speed = 1   # how fast the ripples move
+mirror = 0.5   # how much sky the water reflects
+glints = 2   # how bright the glints are
+falls-streaks = 1   # how strong the waterfall's streaks and foam are
+falls-speed = 0.6   # how fast they fall; negative if they run the wrong way
+
+[water]
+40a81871642a937e = "picked"
+80e957bde04080dc = "8x32, format 6"
+a49ffd22c3944ae4 = "64x64, format 6"
+ba7bdd52190d1af5 = "picked"
+bbd1253d612b5ef0 = "picked"
+ec5c69573f8b1a7e = "picked"
+
+[waterfall]
+6eeb384e27580025 = "32x32, format 6"
+757c391f91bde906 = "64x32, format 5"
+76761390cc477b94 = "16x16, format 6"
+eb0dde46cf540290 = "64x32, format 6"

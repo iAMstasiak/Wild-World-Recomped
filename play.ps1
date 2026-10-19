@@ -1,4 +1,4 @@
-param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$Fps, [switch]$NoDiscord)
+param([string]$Coverage = "", [switch]$NoMods, [int]$Days = 0, [int]$Hours = 0, [string]$Watch = "", [switch]$Tier3, [switch]$Fps, [switch]$NoDiscord, [switch]$Pick)
 $env:Path = "C:\msys64\mingw64\bin;" + $env:Path
 Set-Location $PSScriptRoot
 # Your choices live in settings.toml. The runner reads all of it itself: it
@@ -11,6 +11,9 @@ if (-not $Coverage) { $Coverage = "run-" + (Get-Date -Format "yyyyMMdd-HHmmss") 
 # -NoMods and -NoDiscord leave those out for this run only.
 if ($NoMods) { $env:ACWW_NO_MODS = "1" } else { Remove-Item Env:ACWW_NO_MODS -ErrorAction SilentlyContinue }
 if ($NoDiscord) { $env:ACWW_NO_DISCORD = "1" } else { Remove-Item Env:ACWW_NO_DISCORD -ErrorAction SilentlyContinue }
+# -Pick turns on the texture picker for materials.toml: [ and ] choose a
+# texture on screen, M marks it as water, O turns the water effect off and on.
+if ($Pick) { $env:ACWW_TEXTURE_PICK = "1" } else { Remove-Item Env:ACWW_TEXTURE_PICK -ErrorAction SilentlyContinue }
 # -Days N / -Hours N start the game's clock ahead of the PC clock (for testing).
 $extra = @()
 if ($Days -ne 0 -or $Hours -ne 0) {
