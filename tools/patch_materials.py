@@ -3,15 +3,20 @@
 
 The HD renderer learns which of the game's textures are water from
 materials.toml (tools/acww_materials.h, copied into the runner) and draws
-those polygons with moving ripples, a sky reflection that grows with
-distance, and glints, on top of the game's own colours. A texture is
-known by a hash of its texels, so a tag holds wherever the game loads it.
+those polygons in place of the game's pattern: calm swells, a sky sheen
+that grows with distance and glints in short dashes, in the texture's
+average colour (so day and night still change it), tinted toward a colour
+of your choosing. A texture is known by a hash of its texels, so a tag
+holds wherever the game loads it.
 
 Waterfalls get streaks and foam of their own. The texture picker fills in
 materials.toml: run play.ps1 -Pick, then [ and ] step through the textures
-on screen (the chosen one flashes), M marks it as water and F as a
-waterfall (again to unmark), O turns the effects off and on, and R reads
+on screen (the chosen one flashes), M marks it as water, F as a waterfall,
+H as hidden and B as under the water (again to unmark), O turns the effects
+off and on, R reads
 materials.toml again, so its [look] numbers can be tried while playing.
+While picking, textures drawn exactly where tagged water was the frame
+before are tagged too, which finds the water's other animation frames.
 
 Only the HD picture (internal resolution 2 or more) has the effect. Run
 after the other patch_*.py scripts. Safe to run again: edits that are
@@ -73,49 +78,73 @@ vec2 AcwwNoiseSlope(vec2 p)
     return du * vec2(b - a + k * u.y, c - a + k * u.x);
 }
 
-// Ripples: three sizes of noise, each turned and drifting its own way. The
-// smallest fades out toward the distance, where it would only be grain.
-// AcwwLook[0] is ripples, shading, size, speed; AcwwLook[1] is mirror,
-// glints, falls-streaks, falls-speed (materials.toml's [look]).
-vec2 AcwwRippleSlope(vec2 p, float near)
+// The texture's average colour and alpha, from 16 of its texels: the water
+// without the game's pattern (which is partly in its alpha), still following
+// its day and night palettes.
+vec4 AcwwAverage(float layer)
 {
-    const mat2 r1 = mat2(0.4536, 0.8912, -0.8912, 0.4536);
-    const mat2 r2 = mat2(-0.6663, 0.7457, -0.7457, -0.6663);
-    float size = max(AcwwLook[0].z, 0.05);
-    float t = AcwwTime * AcwwLook[0].w;
-    p /= size;
-    vec2 slope = AcwwNoiseSlope(p * 0.16 + vec2(1.0, 0.35) * (t * 0.24)) * 0.16;
-    slope += (AcwwNoiseSlope(r1 * p * 0.33 + vec2(-0.55, 1.0) * (t * 0.36)) * r1) * 0.20;
-    slope += (AcwwNoiseSlope(r2 * p * 0.62 + vec2(0.3, -1.0) * (t * 0.51)) * r2) * (0.20 * near);
-    return slope * AcwwLook[0].x * size;
+    vec3 sum = vec3(0.0);
+    float count = 0.0, alpha = 0.0;
+    for (int y = 0; y < 4; y++)
+        for (int x = 0; x < 4; x++)
+        {
+            uvec4 texel = texture(CurrentTexture, vec3((vec2(x, y) + 0.5) * 0.25, layer));
+            alpha += float(texel.a);
+            if (texel.a > 0U)
+            {
+                sum += vec3(texel.rgb);
+                count += 1.0;
+            }
+        }
+    return vec4(count > 0.0 ? sum / count : vec3(0.0), alpha / 16.0);
 }
 
-vec3 AcwwWater(vec3 base, vec2 p, ivec2 pos)
+// Water, drawn in place of the game's pattern: calm broad swells, a sky sheen
+// that grows with distance, and glints that catch the light in short dashes.
+// AcwwLook[0] = swell, wave-size, wave-speed, mirror; [1] = glints,
+// glint-amount, keep-texture, tint; [2] = tint colour (0-255), falls-streaks;
+// [3] = falls-speed, opacity, see-through (materials.toml's [look]). dx is how
+// far along the texture one pixel to the right is, so the glints lie along rows.
+vec3 AcwwWater(vec3 texColor, vec3 avgColor, vec2 p, vec2 dx, ivec2 pos)
 {
-    vec2 slope = AcwwRippleSlope(p, float(pos.y) / float(ScreenHeight));
-    float lum = dot(base, vec3(0.3, 0.5, 0.2)) / 63.0;
-    // slopes facing the light are brighter; the others only a little darker,
-    // or the troughs turn to dark blotches
-    float lit = dot(slope, vec2(-0.45, 0.65)) * AcwwLook[0].y;
-    vec3 color = base * (1.0 + (lit > 0.0 ? lit : lit * 0.35));
-    // water farther away, higher on the screen, mirrors more of the sky; the
-    // sky is a brighter, bluer copy of the water's own colour, so night stays dark
+    const vec3 lumw = vec3(0.3, 0.5, 0.2);
+    vec3 game = mix(avgColor, texColor, clamp(AcwwLook[1].z, 0.0, 1.0));
+    vec3 tint = AcwwLook[2].xyz * (63.0 / 255.0);
+    float l = dot(game, lumw);
+    vec3 base = mix(game, tint * (l / max(dot(tint, lumw), 0.5)), clamp(AcwwLook[1].w, 0.0, 1.0));
+
+    float t = AcwwTime * AcwwLook[0].z;
+    p /= max(AcwwLook[0].y, 0.05);
+    vec2 swell = AcwwNoiseSlope(p * 0.03 + vec2(1.0, 0.3) * (t * 0.15))
+               + AcwwNoiseSlope(p * 0.06 + vec2(-0.4, 1.0) * (t * 0.24)) * 0.5;
+    swell *= AcwwLook[0].x;
+    vec3 color = base * (1.0 + dot(swell, vec2(-0.4, 0.7)) * 0.10);
+
     float far = 1.0 - float(pos.y) / float(ScreenHeight);
-    vec3 sky = base * vec3(1.35, 1.45, 1.5) + 4.0;
-    float mirror = clamp(AcwwLook[1].x * (0.35 + 0.65 * far) + slope.y * 0.6, 0.0, 0.75);
-    color = mix(color, sky, mirror);
-    // glints where a ripple faces the sun (or the moon, more faintly)
-    vec2 toSun = slope - vec2(0.09, -0.14);
-    float glint = exp(-dot(toSun, toSun) * 450.0);
-    return color + vec3(glint * (0.15 + 1.5 * lum) * 31.5 * AcwwLook[1].y);
+    vec3 sky = base * vec3(1.2, 1.25, 1.25) + 2.5;
+    color = mix(color, sky, clamp(AcwwLook[0].w * (0.25 + far) + swell.y * 0.05, 0.0, 0.7));
+
+    vec2 e = dot(dx, dx) > 0.0 ? normalize(dx) : vec2(1.0, 0.0);
+    vec2 ps = vec2(dot(p, e), dot(p, vec2(-e.y, e.x)));
+    // on a stretched texture a dash would run right across the screen: keep
+    // them under about 40 pixels long and 9 pixels thick
+    float texel = dot(dx, dx) > 0.0 ? length(dx) / max(AcwwLook[0].y, 0.05) : 1.0;
+    vec2 q = vec2(ps.x * max(0.05, 0.025 / texel), ps.y * max(0.22, 0.11 / texel))
+           + vec2(t * 0.1, -t * 0.35);
+    vec2 g = AcwwNoiseSlope(q) + AcwwNoiseSlope(q * vec2(1.9, 2.3) + 3.7) * 0.5;
+    vec2 d = g - vec2(0.0, 1.1);
+    float spot = exp(-dot(d, d) * 18.0);
+    float gate = clamp((AcwwNoise(p * 0.03 + vec2(t * 0.03, 0.0)) - 0.65 + 0.3 * AcwwLook[1].y) * 3.0, 0.0, 1.0);
+    float light = dot(base, lumw) / 30.0;   // about 1 by day, much less at night
+    return color + vec3(spot * gate * AcwwLook[1].x * (4.0 + 36.0 * light * light));
 }
 
 // Waterfalls: streaks and foam running along the texture's v, the way the
 // game lays its falling water.
 vec3 AcwwFalls(vec3 base, vec2 p)
 {
-    float t = AcwwTime * AcwwLook[1].w;
-    float strength = AcwwLook[1].z;
+    float t = AcwwTime * AcwwLook[3].x;
+    float strength = AcwwLook[2].w;
     float n = AcwwNoise(vec2(p.x * 0.45, p.y * 0.06 - t * 2.0)) * 0.6
             + AcwwNoise(vec2(p.x * 1.10, p.y * 0.15 - t * 3.4)) * 0.4;
     float lum = dot(base, vec3(0.3, 0.5, 0.2)) / 63.0;
@@ -140,15 +169,65 @@ APPLY_GLSL = (
     "            {\n"
     "                vec3 acwwBase = vec3(r, g, b);\n"
     "                vec2 acwwP = vec2(u, v) * (1.0 / 16.0);\n"
-    "                vec3 acwwColor = polygon.Material == 255U ? AcwwHighlight(acwwBase)\n"
-    "                    : polygon.Material == 2U ? AcwwFalls(acwwBase, acwwP)\n"
-    "                    : AcwwWater(acwwBase, acwwP, position);\n"
+    "                vec3 acwwColor;\n"
+    "                if (polygon.Material == 255U)\n"
+    "                    acwwColor = AcwwHighlight(acwwBase);\n"
+    "                else if (polygon.Material == 2U)\n"
+    "                    acwwColor = AcwwFalls(acwwBase, acwwP);\n"
+    "                else\n"
+    "                {\n"
+    "                    vec4 acwwAvg4 = AcwwAverage(polygon.TextureLayer);\n"
+    "                    vec3 acwwAvg = acwwAvg4.rgb;\n"
+    "#ifndef Decal\n"
+    "                    acwwAvg = (acwwAvg + 1.0) * (vec3(vr, vg, vb) + 1.0) / 64.0 - 1.0;\n"
+    "                    // the game's pattern is partly in the texture's alpha: even it\n"
+    "                    // out too, then make the water more or less see-through\n"
+    "                    float acwwA = mix(acwwAvg4.a, float(texcolor.a), clamp(AcwwLook[1].z, 0.0, 1.0));\n"
+    "                    acwwA = min(acwwA * AcwwLook[3].y, 31.0);\n"
+    "                    a = uint(((int(acwwA + 0.5) + 1) * (int(polyalpha) + 1) - 1) >> 5);\n"
+    "#endif\n"
+    "                    // which way the screen's rows run across the texture\n"
+    "                    vec2 acwwDx = vec2(0.0);\n"
+    "                    if (xspan.X1 - xspan.X0 >= 2)\n"
+    "                    {\n"
+    "                        int acwwX = position.x + 1 < xspan.X1 ? position.x + 1 : position.x - 1;\n"
+    "                        int acwwU, acwwV;\n"
+    "                        if ((xspan.Flags & XSpanSetup_Linear) == 0U)\n"
+    "                        {\n"
+    "                            int acwwF = CalcYFactorX(xspan, acwwX);\n"
+    "                            acwwU = InterpolateAttrPersp(xspan.TexcoordU0, xspan.TexcoordU1, acwwF);\n"
+    "                            acwwV = InterpolateAttrPersp(xspan.TexcoordV0, xspan.TexcoordV1, acwwF);\n"
+    "                        }\n"
+    "                        else\n"
+    "                        {\n"
+    "                            acwwU = InterpolateAttrLinear(xspan.TexcoordU0, xspan.TexcoordU1,\n"
+    "                                acwwX - xspan.X0, xspan.XRecip, xspan.X1 - xspan.X0);\n"
+    "                            acwwV = InterpolateAttrLinear(xspan.TexcoordV0, xspan.TexcoordV1,\n"
+    "                                acwwX - xspan.X0, xspan.XRecip, xspan.X1 - xspan.X0);\n"
+    "                        }\n"
+    "                        acwwDx = vec2(acwwU - u, acwwV - v) * (acwwX > position.x ? 1.0 : -1.0) / 16.0;\n"
+    "                    }\n"
+    "                    acwwColor = AcwwWater(acwwBase, acwwAvg, acwwP, acwwDx, position);\n"
+    "                }\n"
     "                acwwColor = clamp(acwwColor + 0.5, 0.0, 63.0);\n"
     "                r = uint(acwwColor.r);\n"
     "                g = uint(acwwColor.g);\n"
     "                b = uint(acwwColor.b);\n"
     "            }\n"
-    "#endif\n")
+    "#else\n"
+    "            // acwwrecomp: the picker's choice flashes on untextured polygons too\n"
+    "            if (polygon.Material == 255U)\n"
+    "            {\n"
+    "                float acwwPulse = 0.5 + 0.5 * sin(AcwwTime * 8.0);\n"
+    "                vec3 acwwColor = mix(vec3(r, g, b), vec3(63.0, 0.0, 63.0), 0.3 + 0.6 * acwwPulse);\n"
+    "                r = uint(acwwColor.r + 0.5);\n"
+    "                g = uint(acwwColor.g + 0.5);\n"
+    "                b = uint(acwwColor.b + 0.5);\n"
+    "            }\n"
+    "#endif\n"
+    "            if (polygon.Material == 3U && (AcwwFlags & 1U) != 0U)\n"
+    "                a = 0U;   // acwwrecomp: hidden\n"
+    "// acwwrecomp: end of the material effect\n")
 
 # (file, text to find, replacement, marker that shows the edit is already in)
 EDITS = [
@@ -232,8 +311,12 @@ EDITS = [
     (COMPUTE_H,
      "        u32 AcwwFlags;   // acwwrecomp: 1 = water effect on\n",
      "        u32 AcwwFlags;   // acwwrecomp: 1 = water effect on\n"
-     "        float AcwwLook[8];   // acwwrecomp: materials.toml's [look]\n",
-     "        float AcwwLook[8];"),
+     "        float AcwwLook[16];   // acwwrecomp: materials.toml's [look]\n",
+     "        float AcwwLook["),
+    (COMPUTE_H,   # (an older patch had 8)
+     "        float AcwwLook[8];",
+     "        float AcwwLook[16];",
+     "        float AcwwLook[16];"),
     (COMPUTE_H,
      "    int ShaderStepIdx = 0;\n",
      "    int ShaderStepIdx = 0;\n"
@@ -296,6 +379,18 @@ EDITS = [
      "             RenderPolygons[i].Material == acww_materials::kFalls) && acwwWater)\n"
      "            acwwAnimated = true;\n",
      "        RenderPolygons[i].Material = (acwwSelected"),
+    (COMPUTE,
+     "             RenderPolygons[i].Material == acww_materials::kFalls) && acwwWater)\n"
+     "            acwwAnimated = true;\n",
+     "             RenderPolygons[i].Material == acww_materials::kFalls) && acwwWater)\n"
+     "            acwwAnimated = true;\n"
+     "        // acwwrecomp: a polygon with no texture is known by its kind, alpha and ID\n"
+     "        const u64 acwwPlain = (!acwwHash && !polygon->IsShadowMask)\n"
+     "            ? acww_materials::plain_key(polygon->Attr) : 0;\n"
+     "        if (acwwPlain)\n"
+     "            RenderPolygons[i].Material = (acwwSelected && acwwPlain == acwwSelected)\n"
+     "                ? (u32)acww_materials::kHighlight : acww_materials::material_for(acwwPlain);\n",
+     "const u64 acwwPlain = (!acwwHash"),
     (COMPUTE,   # (an older patch: waterfalls move too)
      "        if (RenderPolygons[i].Material == acww_materials::kWater && acwwWater)\n",
      "        if ((RenderPolygons[i].Material == acww_materials::kWater ||\n"
@@ -319,6 +414,41 @@ EDITS = [
      "                (long long)std::max(xmax - xmin, 0) * std::max(ybot - ytop, 0));\n"
      "        }\n",
      "        if (acwwPicking && acwwHash)"),
+    (COMPUTE,
+     "                (long long)std::max(xmax - xmin, 0) * std::max(ybot - ytop, 0));\n",
+     "                (long long)std::max(xmax - xmin, 0) * std::max(ybot - ytop, 0));\n"
+     "            // acwwrecomp: drawn where water was last frame, with an untagged\n"
+     "            // texture of the same size and format: the water's next frame\n"
+     "            const u32 learned = acww_materials::learn(xmin, xmax, ytop, ybot, (int)nverts,\n"
+     "                (polygon->TexParam >> 20) & 0x1FF, acwwHash, acwwMaterial,\n"
+     "                TextureWidth(polygon->TexParam), TextureHeight(polygon->TexParam),\n"
+     "                (polygon->TexParam >> 26) & 0x7);\n"
+     "            if (learned != acwwMaterial)\n"
+     "            {\n"
+     "                acwwMaterial = learned;\n"
+     "                if (RenderPolygons[i].Material != acww_materials::kHighlight)\n"
+     "                    RenderPolygons[i].Material = learned;\n"
+     "                if (acwwWater)\n"
+     "                    acwwAnimated = true;\n"
+     "            }\n",
+     "acww_materials::learn(xmin, xmax"),
+    (COMPUTE,
+     "        if (acwwPicking && acwwHash)   // acwwrecomp: how much of the screen it covers\n",
+     "        if (acwwPicking && acwwPlain)   // acwwrecomp: untextured polygons too\n"
+     "        {\n"
+     "            s32 xmin = ScreenWidth, xmax = 0;\n"
+     "            for (u32 k = 0; k < nverts; k++)\n"
+     "            {\n"
+     "                xmin = std::min(scaledPositions[k][0], xmin);\n"
+     "                xmax = std::max(scaledPositions[k][0], xmax);\n"
+     "            }\n"
+     "            acww_materials::note_plain(acwwPlain, (polygon->Attr >> 16) & 0x1F, (polygon->Attr >> 24) & 0x3F,\n"
+     "                polygon->Vertices[0]->FinalColor[0] >> 3, polygon->Vertices[0]->FinalColor[1] >> 3,\n"
+     "                polygon->Vertices[0]->FinalColor[2] >> 3,\n"
+     "                (long long)std::max(xmax - xmin, 0) * std::max(ybot - ytop, 0));\n"
+     "        }\n"
+     "        if (acwwPicking && acwwHash)   // acwwrecomp: how much of the screen it covers\n",
+     "acww_materials::note_plain(acwwPlain"),
     (COMPUTE,
      '    //printf("found via %d %d %d of %d\\n", foundviatexcache, foundviaprev, numslow, RenderNumPolygons);\n',
      "    acww_materials::end_frame();   // acwwrecomp: the picker's keys\n"
@@ -365,13 +495,17 @@ EDITS = [
      "    uint AcwwFlags;\n"
      "};\n",
      "    uint AcwwFlags;\n"
-     "    vec4 AcwwLook[2]; // acwwrecomp: materials.toml's [look]\n"
+     "    vec4 AcwwLook[4]; // acwwrecomp: materials.toml's [look]\n"
      "};\n",
-     "    vec4 AcwwLook[2];"),
+     "    vec4 AcwwLook["),
+    (SHADERS,   # (an older patch had 2)
+     "    vec4 AcwwLook[2];",
+     "    vec4 AcwwLook[4];",
+     "    vec4 AcwwLook[4];"),
     (SHADERS,
      "layout (location = 1) uniform vec2 InvTextureSize;\n",
      "layout (location = 1) uniform vec2 InvTextureSize;\n" + WATER_GLSL,
-     "vec3 AcwwWater(vec3 base"),
+     "// acwwrecomp: material effects (tools/patch_materials.py)"),
     (SHADERS,
      "            if (polyalpha == 0)\n"
      "                a = 31;\n",
@@ -380,6 +514,109 @@ EDITS = [
      "            if (polyalpha == 0)\n"
      "                a = 31;\n",
      "            // acwwrecomp: the polygon's material effect"),
+    (SHADERS,
+     "                    uint srcAttr = (polygonAttr & 0x3F008000U);\n",
+     "                    uint srcAttr = (polygonAttr & 0x3F008000U);\n"
+     "                    // acwwrecomp: the game fogs the near water blue, which makes a line\n"
+     "                    // across it, so our water (and the picker's choice) goes without\n"
+     "                    if (Polygons[polygonIdx].Material == 255U ||\n"
+     "                        (Polygons[polygonIdx].Material == 1U && (AcwwFlags & 1U) != 0U))\n"
+     "                        srcAttr &= ~(1U << 15);\n",
+     "// acwwrecomp: the game fogs the near water"),
+    (SHADERS,
+     "void PlotTranslucent(inout uint color, inout uint depth, inout uint attr, bool isShadow,",
+     "// acwwrecomp: set while our water is drawn, so it covers the 2D layers\n"
+     "bool AcwwSolid = false;\n"
+     "\n"
+     "void PlotTranslucent(inout uint color, inout uint depth, inout uint attr, bool isShadow,",
+     "bool AcwwSolid = false;"),
+    (SHADERS,
+     "        color = (srcRB & 0x3F003FU) | (srcG & 0x003F00U) | max(dstA, srcA);\n",
+     "        color = (srcRB & 0x3F003FU) | (srcG & 0x003F00U) | (AcwwSolid ? 0x1F000000U : max(dstA, srcA));\n",
+     "(AcwwSolid ? 0x1F000000U"),
+    (SHADERS,
+     "                        bool writeDepth = (polygonAttr & (1U<<11)) != 0;\n",
+     "                        bool writeDepth = (polygonAttr & (1U<<11)) != 0;\n"
+     "                        // acwwrecomp: our water shows the 3D behind it but not the 2D\n"
+     "                        // layers (the sky showed through the near water as a blue band)\n"
+     "                        AcwwSolid = Polygons[polygonIdx].Material == 1U && (AcwwFlags & 1U) != 0U;\n",
+     "AcwwSolid = Polygons[polygonIdx]"),
+    (SHADERS,
+     "                        srcAttr &= ~(1U << 15);\n",
+     "                        srcAttr &= ~(1U << 15);\n"
+     "                    // acwwrecomp: our water marks its pixels (bit 4), so the next layer of\n"
+     "                    // water blends with it the DS way, but it can go over the game's others\n"
+     "                    if (Polygons[polygonIdx].Material == 1U && (AcwwFlags & 1U) != 0U)\n"
+     "                        srcAttr |= 0x10U;\n",
+     "srcAttr |= 0x10U;"),
+    (SHADERS,
+     "    if ((!isShadow || (attr & (1U<<22)) != 0U)\n"
+     "        ? (attr & 0x007F0000U) != (blendAttr & 0x007F0000U)\n"
+     "        : (attr & 0x3F000000U) != (srcAttr & 0x3F000000U))\n",
+     "    // acwwrecomp: the DS skips a see-through layer over one with the same ID; near the\n"
+     "    // camera that hid our water under the game's fogged blue layer, so ours goes over\n"
+     "    if ((AcwwSolid && (attr & 0x10U) == 0U) ||\n"
+     "        ((!isShadow || (attr & (1U<<22)) != 0U)\n"
+     "        ? (attr & 0x007F0000U) != (blendAttr & 0x007F0000U)\n"
+     "        : (attr & 0x3F000000U) != (srcAttr & 0x3F000000U)))\n",
+     "(AcwwSolid && (attr & 0x10U) == 0U)"),
+    (SHADERS,
+     "    uint blendAttr = (srcAttr & 0xE0F0U) | ((srcAttr >> 8) & 0xFF0000U) | (1U<<22) | (attr & 0xFF001F0FU);\n",
+     "    uint blendAttr = (srcAttr & 0xE0F0U) | ((srcAttr >> 8) & 0xFF0000U) | (1U<<22) | (attr & 0xFF001F0FU);\n"
+     "    uint acwwOldAttr = attr;   // acwwrecomp: was our water here already?\n",
+     "uint acwwOldAttr = attr;"),
+    (SHADERS,
+     "        uint dstA = color & 0x1F000000U;\n",
+     "        uint dstA = color & 0x1F000000U;\n"
+     "        // acwwrecomp: under our water, what the game drew mostly gives way to a deeper\n"
+     "        // shade of the water itself; see-through in [look] says how much still shows\n"
+     "        bool acwwDeep = AcwwSolid && (acwwOldAttr & 0x10U) == 0U;\n"
+     "        if (acwwDeep)\n"
+     "        {\n"
+     "            vec3 acwwSrc = vec3(float(tileColor & 0x3FU), float((tileColor >> 8) & 0x3FU),\n"
+     "                float((tileColor >> 16) & 0x3FU));\n"
+     "            vec3 acwwDst = vec3(float(color & 0x3FU), float((color >> 8) & 0x3FU),\n"
+     "                float((color >> 16) & 0x3FU));\n"
+     "            float acwwSee = (dstA != 0U && (acwwOldAttr & 0x20U) == 0U) ? clamp(AcwwLook[3].z, 0.0, 1.0) : 0.0;\n"
+     "            uvec3 acwwU = uvec3(clamp(mix(acwwSrc * 0.62, acwwDst, acwwSee) + 0.5, 0.0, 63.0));\n"
+     "            dstRB = acwwU.r | (acwwU.b << 16);\n"
+     "            dstG = acwwU.g << 8;\n"
+     "        }\n",
+     "bool acwwDeep = AcwwSolid"),
+    (SHADERS,
+     "        if (dstA != 0)\n",
+     "        if (dstA != 0 || acwwDeep)\n",
+     "if (dstA != 0 || acwwDeep)"),
+    (SHADERS,
+     "        uint alpha = (srcA >> 24) + 1;\n",
+     "        uint alpha = (srcA >> 24) + 1;\n"
+     "        // acwwrecomp: our water's strength comes from opacity in [look], not the\n"
+     "        // game's alpha for that polygon (higher near the camera), and every layer\n"
+     "        // of water aims for the same shade, however many the game draws there\n"
+     "        float acwwW = clamp(0.5 * AcwwLook[3].y, 0.0, 1.0);\n"
+     "        float acwwK = mix(0.62, 1.0, acwwW);\n"
+     "        if (acwwDeep)\n"
+     "            alpha = uint(acwwW * 32.0 + 0.5);\n"
+     "        else if (AcwwSolid)\n"
+     "        {\n"
+     "            uint acwwR = uint(float(srcRB & 0x3FU) * acwwK + 0.5);\n"
+     "            uint acwwB = uint(float((srcRB >> 16) & 0x3FU) * acwwK + 0.5);\n"
+     "            srcRB = acwwR | (acwwB << 16);\n"
+     "            srcG = uint(float((srcG >> 8) & 0x3FU) * acwwK + 0.5) << 8;\n"
+     "        }\n",
+     "float acwwK = mix(0.62, 1.0, acwwW);"),
+    (SHADERS,   # (an older patch: everything under the water showed see-through of it)
+     "            float acwwSee = dstA != 0U ? clamp(AcwwLook[3].z, 0.0, 1.0) : 0.0;\n",
+     "            float acwwSee = (dstA != 0U && (acwwOldAttr & 0x20U) == 0U) ? clamp(AcwwLook[3].z, 0.0, 1.0) : 0.0;\n",
+     "(acwwOldAttr & 0x20U) == 0U"),
+    (SHADERS,
+     "                        srcAttr |= 0x10U;\n",
+     "                        srcAttr |= 0x10U;\n"
+     "                    // acwwrecomp: and a layer marked under-water (B) marks its pixels (bit 5),\n"
+     "                    // so our water covers it completely\n"
+     "                    if (Polygons[polygonIdx].Material == 4U && (AcwwFlags & 1U) != 0U)\n"
+     "                        srcAttr |= 0x20U;\n",
+     "srcAttr |= 0x20U;"),
     # --- frontend: the picker's keys and what it says -----------------------
     (FRONTEND,
      '#include "acww_keys.h"   // acwwrecomp: keybinds.ini\n',
@@ -403,9 +640,11 @@ EDITS = [
      "                    acww_materials::press_step(1);\n"
      "                    continue;\n"
      "                }\n"
-     "                if (pick_key == SDL_SCANCODE_M || pick_key == SDL_SCANCODE_F) {\n"
-     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F\n"
-     "                        ? acww_materials::kFalls : acww_materials::kWater);\n"
+     "                if (pick_key == SDL_SCANCODE_M || pick_key == SDL_SCANCODE_F ||\n"
+     "                    pick_key == SDL_SCANCODE_H || pick_key == SDL_SCANCODE_B) {\n"
+     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F ? acww_materials::kFalls\n"
+     "                        : pick_key == SDL_SCANCODE_H ? acww_materials::kHide\n"
+     "                        : pick_key == SDL_SCANCODE_B ? acww_materials::kUnder : acww_materials::kWater);\n"
      "                    continue;\n"
      "                }\n"
      "                if (pick_key == SDL_SCANCODE_R) {\n"
@@ -442,6 +681,24 @@ EDITS = [
      "                    continue;\n"
      "                }\n",
      "acww_materials::press_reload();"),
+    (FRONTEND,   # (an older patch: H hides)
+     "                if (pick_key == SDL_SCANCODE_M || pick_key == SDL_SCANCODE_F) {\n"
+     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F\n"
+     "                        ? acww_materials::kFalls : acww_materials::kWater);\n",
+     "                if (pick_key == SDL_SCANCODE_M || pick_key == SDL_SCANCODE_F ||\n"
+     "                    pick_key == SDL_SCANCODE_H) {\n"
+     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F ? acww_materials::kFalls\n"
+     "                        : pick_key == SDL_SCANCODE_H ? acww_materials::kHide : acww_materials::kWater);\n",
+     "pick_key == SDL_SCANCODE_H"),
+    (FRONTEND,   # (an older patch: B marks a layer as under the water)
+     "                    pick_key == SDL_SCANCODE_H) {\n"
+     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F ? acww_materials::kFalls\n"
+     "                        : pick_key == SDL_SCANCODE_H ? acww_materials::kHide : acww_materials::kWater);\n",
+     "                    pick_key == SDL_SCANCODE_H || pick_key == SDL_SCANCODE_B) {\n"
+     "                    acww_materials::press_mark(pick_key == SDL_SCANCODE_F ? acww_materials::kFalls\n"
+     "                        : pick_key == SDL_SCANCODE_H ? acww_materials::kHide\n"
+     "                        : pick_key == SDL_SCANCODE_B ? acww_materials::kUnder : acww_materials::kWater);\n",
+     "pick_key == SDL_SCANCODE_B) {"),
     (FRONTEND,
      "        const uint64_t counter = SDL_GetPerformanceCounter();\n"
      "        if (!savestate_notice.empty() && counter >= savestate_notice_until)\n",
@@ -460,12 +717,14 @@ EDITS = [
 ]
 
 # Blocks rewritten whole when they differ, so a newer look replaces an older
-# one: (file, the text the block starts with, the text that ends it).
+# one: (file, the text the block starts with, the text that ends it, or a
+# list of those to try in turn, newest first).
 BLOCKS = [
     (SHADERS, "// acwwrecomp: material effects (tools/patch_materials.py)", "#endif\n",
      WATER_GLSL.lstrip("\n")),
-    (SHADERS, APPLY_GLSL.split("\n", 2)[0] + "\n" + APPLY_GLSL.split("\n", 2)[1] + "\n", "#endif\n",
-     APPLY_GLSL),
+    (SHADERS, APPLY_GLSL.split("\n", 2)[0] + "\n" + APPLY_GLSL.split("\n", 2)[1] + "\n",
+     ("\n// acwwrecomp: end of the material effect\n", "#endif // acwwrecomp: end of the material effect\n",
+      "            }\n#endif\n"), APPLY_GLSL),
 ]
 
 
@@ -495,11 +754,15 @@ def main() -> int:
         changed.add(rel)
         print(f"  patched: {rel}: {marker.strip()[:60]}")
 
-    for rel, begin, end, block in BLOCKS:
+    for rel, begin, ends, block in BLOCKS:
         text, crlf = texts[rel]
         at = text.find(begin)
-        stop = text.find(end, at) + len(end) if at >= 0 else -1
-        if at < 0 or stop < len(end):
+        stop = -1
+        for end in (ends if isinstance(ends, tuple) else (ends,)):
+            if at >= 0 and text.find(end, at) >= 0:
+                stop = text.find(end, at) + len(end)
+                break
+        if at < 0 or stop < 0:
             raise SystemExit(f"{rel}: can't find the block starting '{begin.strip().splitlines()[0][:60]}'")
         if text[at:stop] == block:
             continue

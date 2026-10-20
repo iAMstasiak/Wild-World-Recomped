@@ -4,25 +4,44 @@
 # textures, by a hash of their texels, with their size and format.
 
 [look]
-ripples = 1.5   # how tall the ripples are
-shading = 1   # how much the ripples light and shade the water
-size = 3   # ripple size: 2 is twice as big
-speed = 1   # how fast the ripples move
-mirror = 0.5   # how much sky the water reflects
+swell = 1   # how much the broad waves light and shade the water
+wave-size = 1   # wave size: 2 is twice as big
+wave-speed = 1   # how fast the water moves
+mirror = 0.5   # how much sky the water reflects, more in the distance
 glints = 2   # how bright the glints are
+glint-amount = 1   # how many glints there are: 0 to about 2
+keep-texture = 0   # how much of the game's own water pattern shows: 0 to 1
+tint = 1   # how much the water takes the tint colour: 0 keeps the game's blue
+tint-red = 64   # the tint colour
+tint-green = 124   # the tint colour
+tint-blue = 128   # the tint colour
 falls-streaks = 1   # how strong the waterfall's streaks and foam are
 falls-speed = 0.6   # how fast they fall; negative if they run the wrong way
+opacity = 0.5   # how solid the water is: below 1 is clearer, above 1 hides what is under it
+see-through = 0.4   # how much of what the game draws under the water shows: 0 to 1
 
 [water]
-40a81871642a937e = "picked"
-80e957bde04080dc = "8x32, format 6"
+32c2d99cf5a71a60 = "8x32, format 6, learned"
+40a81871642a937e = "32x32, format 6"
 a49ffd22c3944ae4 = "64x64, format 6"
 ba7bdd52190d1af5 = "picked"
 bbd1253d612b5ef0 = "picked"
+e170c127dc315f72 = "32x32, format 6, learned"
 ec5c69573f8b1a7e = "picked"
 
 [waterfall]
+038e3e49a23ec6d1 = "64x32, format 5, learned"
+0f103f92a4d83e02 = "64x32, format 6, learned"
+21562888f085accd = "32x32, format 6, learned"
+32d1d99cf5a71a60 = "16x16, format 6, learned"
 6eeb384e27580025 = "32x32, format 6"
 757c391f91bde906 = "64x32, format 5"
 76761390cc477b94 = "16x16, format 6"
 eb0dde46cf540290 = "64x32, format 6"
+faceb132a403b06f = "32x32, format 6, learned"
+
+[hide]
+
+[under-water]
+80e957bde04080dc = "8x32, format 6"
+a81995e1566c8f0d = "128x64, format 5"

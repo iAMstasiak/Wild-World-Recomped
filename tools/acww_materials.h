@@ -7,7 +7,7 @@
 // that texture. The tags and settings live in materials.toml:
 //
 //   [look]
-//   ripples = 0.8
+//   tint = 0.85
 //   [water]
 //   1a2b3c4d5e6f7081 = "64x64, format 3"
 //   [waterfall]
@@ -15,9 +15,15 @@
 //
 // The texture picker writes that file: with ACWW_TEXTURE_PICK=1 (play.ps1
 // -Pick), [ and ] step through the textures on screen, largest first, and
-// the chosen one flashes; M marks it as water and F as a waterfall (again to
-// unmark), O turns the effects off and on to compare, and R reads
+// the chosen one flashes; M marks it as water, F as a waterfall, H as hidden
+// and B as under the water: our water covers it completely instead of letting
+// see-through of it show (again to unmark). O turns the effects off and on to
+// compare, and R reads
 // materials.toml again, so the [look] numbers can be changed while playing.
+// While picking, a texture of the same size and format drawn in exactly the
+// same place as tagged water the frame before is tagged too (learn), which
+// finds the water's other animation frames: stand still by the water for a
+// few seconds. A layer of another size or format is marked by hand.
 // ACWW_MATERIALS names another file, and ACWW_WATER=off starts with the
 // effects off.
 //
@@ -36,28 +42,38 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace acww_materials {
 
-enum : uint32_t { kNone = 0, kWater = 1, kFalls = 2, kHighlight = 255 };
+enum : uint32_t { kNone = 0, kWater = 1, kFalls = 2, kHide = 3, kUnder = 4, kHighlight = 255 };
 
-// The [look] settings, in the order the shader reads them (AcwwLook).
+// The [look] settings, in the order the shader reads them (AcwwLook, four
+// to a vec4). Colours are 0-255.
 struct LookSetting {
     const char* name;
     float value;
     const char* note;
 };
-constexpr int kLookCount = 8;
+constexpr int kLookCount = 16;
 inline const LookSetting kLookDefaults[kLookCount] = {
-    {"ripples", 0.8f, "how tall the ripples are"},
-    {"shading", 0.65f, "how much the ripples light and shade the water"},
-    {"size", 3.0f, "ripple size: 2 is twice as big as 1"},
-    {"speed", 1.0f, "how fast the ripples move"},
-    {"mirror", 0.30f, "how much sky the water reflects"},
+    {"swell", 1.0f, "how much the broad waves light and shade the water"},
+    {"wave-size", 1.0f, "wave size: 2 is twice as big"},
+    {"wave-speed", 1.0f, "how fast the water moves"},
+    {"mirror", 0.25f, "how much sky the water reflects, more in the distance"},
     {"glints", 1.0f, "how bright the glints are"},
+    {"glint-amount", 1.0f, "how many glints there are: 0 to about 2"},
+    {"keep-texture", 0.0f, "how much of the game's own water pattern shows: 0 to 1"},
+    {"tint", 0.85f, "how much the water takes the tint colour: 0 keeps the game's blue"},
+    {"tint-red", 64.0f, "the tint colour"},
+    {"tint-green", 124.0f, "the tint colour"},
+    {"tint-blue", 128.0f, "the tint colour"},
     {"falls-streaks", 1.0f, "how strong the waterfall's streaks and foam are"},
     {"falls-speed", 0.6f, "how fast they fall; negative if they run the wrong way"},
+    {"opacity", 1.0f, "how solid the water is: below 1 is clearer, above 1 hides what is under it"},
+    {"see-through", 0.25f, "how much of what the game draws under the water shows: 0 to 1"},
+    {"spare-3", 0.0f, "not used yet"},
 };
 
 struct Tag {
@@ -67,8 +83,10 @@ struct Tag {
 
 struct Seen {
     uint64_t hash;
-    int width, height, format;
+    int width, height, format;   // a width of 0 is a polygon with no texture:
     long long area;   // screen pixels its polygons' boxes cover this frame
+    int alpha = 0, id = 0;       // then these say which
+    uint32_t colour = 0;
 };
 
 struct State {
@@ -84,6 +102,10 @@ struct State {
     std::vector<Seen> frame;
     std::unordered_map<uint64_t, size_t> frame_index;
     std::atomic<int> step{0}, toggle{0}, reload{0};
+    // learning: where water was drawn last frame, by polygon shape
+    std::unordered_map<uint64_t, uint32_t> spots, last_spots;
+    std::unordered_set<uint64_t> rejected;   // unmarked this session: never learned again
+    int learned = 0;
     std::atomic<uint32_t> mark{kNone};
     std::mutex notice_mutex;
     std::string notice;
@@ -95,11 +117,20 @@ inline State& state() {
 }
 
 inline const char* material_name(uint32_t m) {
-    return m == kWater ? "water" : m == kFalls ? "waterfall" : "";
+    return m == kWater ? "water" : m == kFalls ? "waterfall" : m == kHide ? "hide"
+         : m == kUnder ? "under-water" : "";
 }
 
 inline uint32_t material_from_name(const std::string& name) {
-    return name == "water" ? kWater : name == "waterfall" ? kFalls : kNone;
+    return name == "water" ? kWater : name == "waterfall" ? kFalls : name == "hide" ? kHide
+         : name == "under-water" ? kUnder : kNone;
+}
+
+// A polygon with no texture is known by its kind, alpha and polygon ID (its
+// polygon attributes without the lighting and culling bits), with the top
+// bit set so it can't be mistaken for a texture.
+inline uint64_t plain_key(uint32_t attr) {
+    return (uint64_t(1) << 63) | uint64_t(attr & 0x3F1F0030u);
 }
 
 inline std::string trim(const std::string& s) {
@@ -161,8 +192,8 @@ inline void load() {
     if (water && (std::strcmp(water, "off") == 0 || std::strcmp(water, "0") == 0)) s.effects = false;
     read_file();
     std::fprintf(stderr, "[acwwrecomp] %zu material tag(s) from %s%s\n", s.tags.size(), s.path.c_str(),
-                 s.picker ? "; texture picker on: [ and ] choose, M water, F waterfall, O effects off/on, "
-                            "R reload" : "");
+                 s.picker ? "; texture picker on: [ and ] choose, M water, F waterfall, H hide, "
+                            "O effects off/on, R reload" : "");
 }
 
 inline bool save() {
@@ -175,8 +206,9 @@ inline bool save() {
                "# textures, by a hash of their texels, with their size and format.\n"
                "\n[look]\n", f);
     for (int i = 0; i < kLookCount; ++i)
-        std::fprintf(f, "%s = %g   # %s\n", kLookDefaults[i].name, s.look[i], kLookDefaults[i].note);
-    for (uint32_t material : {kWater, kFalls}) {
+        if (std::strncmp(kLookDefaults[i].name, "spare", 5) != 0)
+            std::fprintf(f, "%s = %g   # %s\n", kLookDefaults[i].name, s.look[i], kLookDefaults[i].note);
+    for (uint32_t material : {kWater, kFalls, kHide, kUnder}) {
         std::fprintf(f, "\n[%s]\n", material_name(material));
         for (const auto& [hash, tag] : s.tags)
             if (tag.material == material)
@@ -250,15 +282,73 @@ inline void note(uint64_t hash, int width, int height, int format, long long are
     s.frame.push_back(Seen{hash, width, height, format, area});
 }
 
+// Renderer, picker only: a polygon with no texture.
+inline void note_plain(uint64_t key, int alpha, int id, int r, int g, int b, long long area) {
+    State& s = state();
+    const auto it = s.frame_index.find(key);
+    if (it != s.frame_index.end()) {
+        s.frame[it->second].area += area;
+        return;
+    }
+    s.frame_index[key] = s.frame.size();
+    Seen seen{key, 0, 0, 0, area};
+    seen.alpha = alpha;
+    seen.id = id;
+    seen.colour = uint32_t((r & 63) << 12 | (g & 63) << 6 | (b & 63));
+    s.frame.push_back(seen);
+}
+
 inline std::string describe(const Seen& seen) {
-    char text[64];
-    std::snprintf(text, sizeof(text), "%dx%d, format %d", seen.width, seen.height, seen.format);
+    char text[96];
+    if (seen.width == 0)
+        std::snprintf(text, sizeof(text), "no texture, alpha %d, ID %d, colour %d %d %d", seen.alpha, seen.id,
+                      int(seen.colour >> 12) * 4, int((seen.colour >> 6) & 63) * 4, int(seen.colour & 63) * 4);
+    else
+        std::snprintf(text, sizeof(text), "%dx%d, format %d", seen.width, seen.height, seen.format);
     return text;
 }
 
+// Renderer, picker only: a polygon drawn exactly where water (or a waterfall)
+// was drawn last frame, with an untagged texture of the same size and format,
+// is the water's next animation frame, so its texture is tagged the same.
+// (Any size and format catches the river banks too.) A texture unmarked with
+// M or F isn't learned again. Returns the polygon's material.
+inline uint32_t learn(int xmin, int xmax, int ytop, int ybot, int vertices, uint32_t size_format,
+                      uint64_t hash, uint32_t material, int width, int height, int format) {
+    State& s = state();
+    if (!s.picker || !hash) return material;
+    const uint64_t key = (uint64_t(xmin & 0xFFF)) | (uint64_t(xmax & 0xFFF) << 12) | (uint64_t(ytop & 0xFFF) << 24) |
+                         (uint64_t(ybot & 0xFFF) << 36) | (uint64_t(vertices & 0xF) << 48) |
+                         (uint64_t(size_format & 0x1FF) << 52);
+    if (material == kWater || material == kFalls) {
+        s.spots[key] = material;
+        return material;
+    }
+    if (material != kNone) return material;
+    const auto it = s.last_spots.find(key);
+    if (it == s.last_spots.end() || s.rejected.count(hash)) return material;
+    char note[64];
+    std::snprintf(note, sizeof(note), "%dx%d, format %d, learned", width, height, format);
+    s.tags[hash] = Tag{it->second, note};
+    s.version += 1;
+    s.learned += 1;
+    s.spots[key] = it->second;
+    return it->second;
+}
+
 inline void end_frame() {
+    load();
     State& s = state();
     if (!s.picker) return;
+    s.last_spots.swap(s.spots);
+    s.spots.clear();
+    if (s.learned) {
+        char learned[96];
+        std::snprintf(learned, sizeof(learned), "Learned %d more water texture(s)%s", s.learned,
+                      save() ? "" : " (couldn't write materials.toml)");
+        set_notice(learned);
+        s.learned = 0;
+    }
     std::sort(s.frame.begin(), s.frame.end(), [](const Seen& a, const Seen& b) { return a.area > b.area; });
     const int count = static_cast<int>(s.frame.size());
     int at = -1;
@@ -290,11 +380,18 @@ inline void end_frame() {
             for (const Seen& seen : s.frame)
                 if (seen.hash == s.selected) note = describe(seen);
             const bool unmark = material_for(s.selected) == mark;
-            if (unmark) s.tags.erase(s.selected);
-            else s.tags[s.selected] = Tag{mark, note};
+            if (unmark) {
+                s.tags.erase(s.selected);
+                s.rejected.insert(s.selected);
+            } else {
+                s.tags[s.selected] = Tag{mark, note};
+                s.rejected.erase(s.selected);
+            }
             s.version += 1;
             const bool saved = save();
-            std::snprintf(text, sizeof(text), "%s %s: %016llx%s", unmark ? "Not" : "Marked as", material_name(mark),
+            const std::string what = mark == kHide ? (unmark ? "Shown again" : "Hidden")
+                                                   : std::string(unmark ? "Not " : "Marked as ") + material_name(mark);
+            std::snprintf(text, sizeof(text), "%s: %016llx%s", what.c_str(),
                           static_cast<unsigned long long>(s.selected),
                           saved ? "" : " (couldn't write materials.toml)");
             set_notice(text);
